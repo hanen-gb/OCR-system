@@ -41,7 +41,11 @@ htmlcov/
 .coverage
 
 # Streamlit
-.streamlit/secrets.toml
+.streamlit/
+
+
+# Jupyter notebooks (may contain credentials)
+*.ipynb
 
 # OS
 .DS_Store
