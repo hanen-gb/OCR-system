@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.doctr_cache/
+*.log
+# Le modèle est hébergé sur HF Hub (Goubaa/layoutxlm-factures)
+# Ne pas inclure dans le Space (limite 1 GB)
+model/
