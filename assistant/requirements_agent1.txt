@@ -1,0 +1,42 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Agent 1 — Extracteur : Dépendances Python
+# Installation : pip install -r requirements_agent1.txt
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── LangGraph & LangChain ─────────────────────────────────────────────────────
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langsmith>=0.1.0                 # Observabilité — traces du graphe sur smith.langchain.com
+
+# ── LLM : Mistral AI (PRINCIPALE — gratuit, email suffit) ────────────────────
+langchain-mistralai>=0.1.0       # console.mistral.ai → "Create API key"
+
+# ── LLM fallback : Google Gemini ─────────────────────────────────────────────
+langchain-google-genai>=2.0.0    # aistudio.google.com → "Get API Key"
+google-generativeai>=0.8.0       # SDK vision natif Gemini
+
+# ── LLM fallback : Groq ───────────────────────────────────────────────────────
+langchain-openai>=0.2.0          # console.groq.com → "API Keys"
+openai>=1.0.0
+
+# ── OCR : OCR.space (PRINCIPALE — gratuit, 25 000 req/mois) ──────────────────
+requests>=2.31.0                 # ocr.space/OCRAPI → "Get your free API key"
+
+# ── Traitement de documents ───────────────────────────────────────────────────
+pdfplumber>=0.11.0               # Extraction texte/tableaux PDF natif
+pdf2image>=1.17.0                # Fallback : PDF scanné → images (requiert poppler)
+Pillow>=10.0.0                   # Manipulation d'images
+
+# ── API REST (serveur local de l'agent) ───────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9          # Upload fichiers via FastAPI
+
+# ── Utilitaires ───────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# ── Note : poppler (requis par pdf2image — seulement si PDF scanné sans OCR.space) ──
+# Windows : https://github.com/oschwartz10612/poppler-windows → ajouter bin/ au PATH
+# Linux   : sudo apt-get install poppler-utils
+# macOS   : brew install poppler

@@ -24,7 +24,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => (localStorage.getItem(THEME_KEY) as Theme) ?? "dark"
   );
   const [lang, setLangState] = useState<Lang>(
-    () => (localStorage.getItem(LANG_KEY) as Lang) ?? "fr"
+    () => (localStorage.getItem(LANG_KEY) as Lang) ?? "en"
   );
 
   // Applique la classe sur <html>

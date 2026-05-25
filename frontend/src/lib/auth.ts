@@ -40,9 +40,9 @@ const DEFAULT_USERS: UserProfile[] = [
     email: "admin@example.com",
     role: "admin",
     avatarColor: AVATAR_COLORS[0],
-    bio: "Compte administrateur par défaut.",
+    bio: "Default administrator account.",
     createdAt: "2025-01-01",
-    lang: "fr",
+    lang: "en",
     theme: "dark",
   },
   {
@@ -52,9 +52,9 @@ const DEFAULT_USERS: UserProfile[] = [
     email: "user@example.com",
     role: "admin",
     avatarColor: AVATAR_COLORS[1],
-    bio: "Étudiante PFE 2025 — ENIG Gabès.",
+    bio: "PFE 2025 student — ENIG Gabès.",
     createdAt: "2025-01-01",
-    lang: "fr",
+    lang: "en",
     theme: "dark",
   },
 ];
@@ -129,7 +129,7 @@ export function register(
 ): { ok: boolean; error?: string } {
   const users = loadUsers();
   if (users.find((u) => u.username.toLowerCase() === username.toLowerCase())) {
-    return { ok: false, error: "Ce nom d'utilisateur est déjà pris." };
+    return { ok: false, error: "This email is already registered." };
   }
   const newUser: UserProfile = {
     username: username.trim(),
@@ -140,7 +140,7 @@ export function register(
     avatarColor: AVATAR_COLORS[users.length % AVATAR_COLORS.length],
     bio: "",
     createdAt: new Date().toISOString().slice(0, 10),
-    lang: "fr",
+    lang: "en",
     theme: "dark",
   };
   users.push(newUser);

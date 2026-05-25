@@ -6,9 +6,8 @@ export default defineConfig({
   server: {
     host: "::",
     port: 3000,
-    hmr: {
-      overlay: false,
-    },
+    allowedHosts: true,
+    hmr: false,
   },
   plugins: [react()],
   resolve: {

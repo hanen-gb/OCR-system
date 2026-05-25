@@ -1,0 +1,10 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent_extracteur": "./agents/extractor/graph.py:extractor_graph",
+    "agent_auditeur"  : "./agents/auditor/graph.py:auditor_graph",
+    "agent_analyste"  : "./agents/analyst/graph.py:analyst_graph",
+    "agent_chatbot"   : "./agents/chatbot/graph.py:chatbot_graph"
+  },
+  "env": ".env"
+}

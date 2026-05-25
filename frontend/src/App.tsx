@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { isAuthenticated } from "@/lib/auth";
 import { AppProvider } from "@/contexts/AppContext";
+import { ChatbotProvider } from "@/contexts/ChatbotContext";
 import AppLayout from "@/components/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import UploadPage from "@/pages/UploadPage";
@@ -28,6 +29,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AppProvider>
+    <ChatbotProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
@@ -86,6 +88,7 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
+    </ChatbotProvider>
     </AppProvider>
   </QueryClientProvider>
 );

@@ -1,0 +1,1156 @@
+"""
+Outils de l'Agent 1 — L'Extracteur
+
+4 outils LangGraph :
+  1. detect_file_type           — Détecte le type de fichier (pdf_native / pdf_scanned / image)
+  2. extract_text_pdf_native    — Extrait le texte d'un PDF natif via pdfplumber
+  3. extract_text_vision        — Extrait le texte via OCR.space (ou Gemini/Groq en fallback)
+  4. extract_augmented_entities — Extrait les entités JSON via Mistral (ou Gemini/Groq en fallback)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APIs gratuites — AUCUNE carte bancaire requise
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VISION (OCR) — OCR.space
+  OCR_SPACE_API_KEY → ocr.space/OCRAPI → clé reçue par email
+  Limites gratuites : 25 000 req/mois, 1 MB par fichier
+
+EXTRACTION (LLM texte) — HuggingFace Inference API
+  HF_API_KEY        → huggingface.co → Settings → Access Tokens → New token
+  Modèle            → mistralai/Mistral-7B-Instruct-v0.3 (gratuit, endpoint cloud)
+  Limites gratuites : généreuses, aucune installation locale
+
+FALLBACK LLM : MISTRAL_API_KEY → GOOGLE_API_KEY → GROQ_API_KEY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+import base64
+import io
+import json
+import os
+import tempfile
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+from langchain_core.tools import tool
+
+load_dotenv()
+
+# ── Modèles ───────────────────────────────────────────────────────────────────
+GROQ_BASE_URL     = "https://api.groq.com/openai/v1"
+GROQ_GEMMA_MODEL  = "qwen/qwen3-32b"  # Qwen3 32B sur Groq — excellent pour JSON structuré FR/AR
+GROQ_TEXT_MODEL   = "qwen/qwen3-32b"
+HF_MODEL          = "Qwen/Qwen2.5-7B-Instruct"
+MISTRAL_MODEL     = "mistral-small-latest"
+GEMINI_MODEL      = "gemini-2.0-flash"
+OCR_SPACE_URL     = "https://api.ocr.space/parse/image"
+
+def _call_llm(prompt: str) -> str:
+    """
+    Appelle le LLM texte.
+    Priorité : Groq → HuggingFace → Google Gemini
+    Si Groq retourne 429 (quota journalier), bascule automatiquement sur HF.
+    """
+    errors = []
+
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage as HM
+            llm = ChatOpenAI(
+                model=GROQ_TEXT_MODEL,
+                api_key=os.getenv("GROQ_API_KEY"),
+                base_url=GROQ_BASE_URL,
+                temperature=0,
+                max_tokens=8192,
+            )
+            return llm.invoke([HM(content=prompt)]).content
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
+                print(f"[LLM] Groq quota atteint — bascule sur HuggingFace")
+                errors.append(f"Groq 429: {msg[:120]}")
+            else:
+                raise  # Autre erreur Groq → propager
+
+    if os.getenv("HF_API_KEY"):
+        try:
+            from huggingface_hub import InferenceClient
+            client = InferenceClient(token=os.getenv("HF_API_KEY"))
+            response = client.chat_completion(
+                model=HF_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=8192,
+                temperature=0.01,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg or "quota" in msg.lower():
+                print(f"[LLM] HuggingFace quota atteint — bascule sur Google")
+                errors.append(f"HF 429: {msg[:120]}")
+            else:
+                raise
+
+    if os.getenv("GOOGLE_API_KEY"):
+        for gemini_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                from langchain_core.messages import HumanMessage as HM
+                llm = ChatGoogleGenerativeAI(
+                    model=gemini_model,
+                    google_api_key=os.getenv("GOOGLE_API_KEY"),
+                    temperature=0,
+                )
+                result = llm.invoke([HM(content=prompt)]).content
+                print(f"[LLM] Modèle utilisé : {gemini_model} (Gemini fallback)")
+                return result
+            except Exception as e:
+                msg = str(e)
+                errors.append(f"Gemini/{gemini_model}: {msg[:120]}")
+                print(f"[LLM] Gemini {gemini_model} → {msg[:120]}")
+                continue
+
+    if errors:
+        raise EnvironmentError(f"Tous les LLM ont échoué :\n" + "\n".join(errors))
+
+    raise EnvironmentError(
+        "\n❌ Aucune clé API LLM trouvée dans assistant/.env\n"
+        "Ajouter au moins : GROQ_API_KEY=gsk_...  ou  HF_API_KEY=hf_...\n"
+    )
+
+
+def _repair_truncated_json(text: str) -> str:
+    """
+    Répare un JSON tronqué (réponse LLM coupée à max_tokens).
+    Ferme les chaînes, listes et objets ouverts.
+    """
+    text = text.rstrip().rstrip(',')
+
+    in_string = False
+    escape_next = False
+    stack = []  # '{' ou '['
+
+    for ch in text:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+        elif not in_string:
+            if ch in ('{', '['):
+                stack.append(ch)
+            elif ch == '}' and stack and stack[-1] == '{':
+                stack.pop()
+            elif ch == ']' and stack and stack[-1] == '[':
+                stack.pop()
+
+    # Ferme la chaîne ouverte si besoin
+    if in_string:
+        text += '"'
+
+    # Ferme les structures dans l'ordre inverse
+    for opener in reversed(stack):
+        text += '}' if opener == '{' else ']'
+
+    return text
+
+
+# ── OCR Factory ───────────────────────────────────────────────────────────────
+
+def _call_ocr_space(file_path: str) -> str:
+    """
+    Envoie un fichier image ou PDF à l'API OCR.space et retourne le texte extrait.
+    Langue : français + anglais (les documents tunisiens mixent les deux).
+    """
+    api_key = os.getenv("OCR_SPACE_API_KEY", "helloworld")  # 'helloworld' = clé test limitée
+
+    suffix = Path(file_path).suffix.lower()
+    filetype_map = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".bmp": "image/bmp",
+        ".tiff": "image/tiff", ".tif": "image/tiff",
+        ".webp": "image/webp", ".pdf": "application/pdf",
+    }
+    mime = filetype_map.get(suffix, "image/png")
+
+    try:
+        with open(file_path, "rb") as f:
+            response = requests.post(
+                OCR_SPACE_URL,
+                files={"file": (Path(file_path).name, f, mime)},
+                data={
+                    "apikey": api_key,
+                    "language": "fre",
+                    "isOverlayRequired": False,
+                    "OCREngine": 2,       # moteur plus précis
+                    "scale": True,
+                    "isTable": True,      # préserve la structure des tableaux
+                    "detectOrientation": True,
+                },
+                timeout=60,
+            )
+
+        result = response.json()
+
+        if result.get("IsErroredOnProcessing"):
+            error_msg = result.get("ErrorMessage") or result.get("ErrorDetails", "Erreur inconnue")
+            if isinstance(error_msg, list):
+                error_msg = " | ".join(str(m) for m in error_msg)
+            return f"Erreur OCR.space : {error_msg}"
+
+        pages_text = [
+            page.get("ParsedText", "")
+            for page in result.get("ParsedResults", [])
+            if page.get("ParsedText")
+        ]
+        return "\n\n".join(pages_text).strip()
+
+    except requests.exceptions.Timeout:
+        return "Erreur OCR.space : timeout (fichier trop lourd ou API lente)"
+    except Exception as e:
+        return f"Erreur OCR.space : {str(e)}"
+
+
+def _call_vision_model_fallback(image_base64: str, mime: str, prompt: str) -> str:
+    """
+    Fallback vision : Gemini (SDK natif) ou Groq.
+    Utilisé seulement si OCR_SPACE_API_KEY est absent.
+    """
+    if os.getenv("GOOGLE_API_KEY"):
+        import google.generativeai as genai
+        from PIL import Image
+
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        image_bytes = base64.b64decode(image_base64)
+        image = Image.open(io.BytesIO(image_bytes))
+        response = model.generate_content([prompt, image])
+        return response.text
+
+    elif os.getenv("GROQ_API_KEY"):
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url=GROQ_BASE_URL)
+        response = client.chat.completions.create(
+            model=GROQ_VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/{mime};base64,{image_base64}"}},
+                ],
+            }],
+        )
+        return response.choices[0].message.content
+
+    else:
+        raise EnvironmentError(
+            "\n❌ Aucune clé API vision trouvée.\n"
+            "Ajoutez OCR_SPACE_API_KEY (ocr.space/OCRAPI) dans assistant/.env"
+        )
+
+
+# ── Outil 1 : detect_file_type ────────────────────────────────────────────────
+
+@tool
+def detect_file_type(file_path: str) -> dict:
+    """
+    Détecte automatiquement le type du fichier reçu :
+      - "pdf_native"  : PDF avec couche texte exploitable (pdfplumber)
+      - "pdf_scanned" : PDF scanné (images uniquement, OCR requis)
+      - "image"       : fichier image direct (JPG, PNG, TIFF, BMP, WEBP)
+
+    Retourne :
+    {
+        "file_type": "pdf_native" | "pdf_scanned" | "image" | "unknown",
+        "pages": int,
+        "extension": str
+    }
+    """
+    import pdfplumber
+
+    path = Path(file_path)
+    if not path.exists():
+        return {"error": f"Fichier introuvable : {file_path}", "file_type": None}
+
+    suffix = path.suffix.lower()
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
+    if suffix in image_exts:
+        return {"file_type": "image", "pages": 1, "extension": suffix}
+
+    if suffix == ".pdf":
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                has_text = any(
+                    len((page.extract_text() or "").strip()) > 50
+                    for page in pdf.pages[:2]
+                )
+                file_type = "pdf_native" if has_text else "pdf_scanned"
+                return {"file_type": file_type, "pages": total_pages, "extension": ".pdf"}
+        except Exception as e:
+            return {"error": str(e), "file_type": None}
+
+    return {"file_type": "unknown", "extension": suffix}
+
+
+# ── Outil 2 : extract_text_pdf_native ────────────────────────────────────────
+
+@tool
+def extract_text_pdf_native(file_path: str) -> str:
+    """
+    Extrait le texte complet d'un PDF natif (avec couche texte) via pdfplumber.
+    Préserve la structure des tableaux (articles, montants, etc.).
+
+    Retourne le texte brut de toutes les pages, formaté avec les tableaux.
+    """
+    import pdfplumber
+
+    pages_text = []
+
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for i, page in enumerate(pdf.pages):
+                section = f"\n--- PAGE {i + 1} ---\n"
+
+                text = page.extract_text()
+                if text:
+                    section += text + "\n"
+
+                tables = page.extract_tables()
+                if tables:
+                    section += "\n[TABLEAUX]\n"
+                    for j, table in enumerate(tables):
+                        section += f"\nTableau {j + 1} :\n"
+                        for row in table:
+                            if row:
+                                section += " | ".join(str(cell or "").strip() for cell in row) + "\n"
+
+                pages_text.append(section)
+
+        return "\n".join(pages_text).strip()
+
+    except Exception as e:
+        return f"Erreur extraction PDF natif : {str(e)}"
+
+
+# ── Outil 3 : extract_text_vision ─────────────────────────────────────────────
+
+@tool
+def extract_text_vision(image_path: str) -> str:
+    """
+    Extrait le texte d'une image ou d'un PDF scanné.
+    Méthode principale : OCR.space (API REST, gratuite).
+    Fallback : Gemini vision ou Groq vision.
+
+    Gère : français, chiffres, tampons, signatures, mentions manuscrites.
+    Retourne le texte brut extrait.
+    """
+    # ── Méthode principale : OCR.space ──
+    if os.getenv("OCR_SPACE_API_KEY") or True:  # tente toujours OCR.space en premier
+        result = _call_ocr_space(image_path)
+        # Si OCR.space retourne du texte valide (pas une erreur), on le renvoie
+        if result and not result.startswith("Erreur OCR.space"):
+            return result
+        # Si erreur OCR.space et pas de clé personnelle → fallback vision LLM
+        if not os.getenv("OCR_SPACE_API_KEY"):
+            return result  # retourne l'erreur si pas de clé du tout
+
+    # ── Fallback : modèle vision LLM ──
+    ocr_prompt = (
+        "Tu es un expert OCR spécialisé dans les documents commerciaux tunisiens. "
+        "Extrais TOUT le texte visible dans cette image, y compris : "
+        "les en-têtes, les tableaux d'articles, les montants, les dates, "
+        "les adresses, les emails, les numéros de téléphone, les tampons, "
+        "les signatures, les mentions manuscrites, les avertissements et les "
+        "mentions légales. Conserve la structure (tableaux en colonnes). "
+        "Retourne uniquement le texte extrait, sans explication."
+    )
+
+    mime_map = {
+        ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png",
+        ".tiff": "tiff", ".tif": "tiff", ".bmp": "bmp", ".webp": "webp",
+    }
+
+    suffix = Path(image_path).suffix.lower()
+
+    if suffix == ".pdf":
+        try:
+            from pdf2image import convert_from_path
+            pages = convert_from_path(image_path, dpi=200)
+            all_text = ""
+            tmpdir = tempfile.gettempdir()
+
+            for i, page_img in enumerate(pages):
+                tmp_path = os.path.join(tmpdir, f"_ocr_page_{i + 1}.png")
+                page_img.save(tmp_path, "PNG")
+                with open(tmp_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                all_text += f"\n--- PAGE {i + 1} ---\n"
+                all_text += _call_vision_model_fallback(b64, "png", ocr_prompt) + "\n"
+                os.remove(tmp_path)
+
+            return all_text.strip()
+        except Exception as e:
+            return f"Erreur conversion PDF scanné : {str(e)}"
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    mime = mime_map.get(suffix, "png")
+    return _call_vision_model_fallback(b64, mime, ocr_prompt)
+
+
+# ── Vision LLM direct ────────────────────────────────────────────────────────
+
+def _call_vision_llm(image_path: str, prompt: str) -> str:
+    """
+    Envoie une image + prompt au modèle vision Qwen2-VL-7B sur HuggingFace.
+    Le modèle voit visuellement les colonnes du tableau → pas de confusion.
+    """
+    mime_map = {
+        ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png",
+        ".bmp": "bmp", ".tiff": "tiff", ".tif": "tiff", ".webp": "webp",
+    }
+    ext = Path(image_path).suffix.lower()
+    mime = mime_map.get(ext, "png")
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+
+    if os.getenv("HF_API_KEY"):
+        from huggingface_hub import InferenceClient
+        client = InferenceClient(token=os.getenv("HF_API_KEY"))
+        response = client.chat_completion(
+            model=HF_VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/{mime};base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+            max_tokens=4096,
+        )
+        return response.choices[0].message.content
+
+    elif os.getenv("GOOGLE_API_KEY"):
+        import google.generativeai as genai
+        from PIL import Image
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        image = Image.open(io.BytesIO(base64.b64decode(b64)))
+        return model.generate_content([prompt, image]).text
+
+    else:
+        raise EnvironmentError("Aucune clé API vision. Ajoutez HF_API_KEY dans assistant/.env")
+
+
+def _build_extraction_prompt(document_type: str, base_entities: dict) -> str:
+    """Construit le prompt d'extraction complet pour le modèle vision."""
+    base_keys = list(base_entities.keys()) if base_entities else []
+    mode_auto = document_type in ("auto", "") or not base_keys
+
+    if base_keys:
+        base_section = f"\nEntités déjà extraites (NE PAS répéter) : {base_keys}\n"
+    else:
+        base_section = ""
+
+    return f"""Tu es un expert en extraction d'informations sur des documents commerciaux du Maghreb (Tunisie, Maroc, Algérie).
+Analyse cette image de document commercial et extrais les données structurées.
+{base_section}
+━━━ RÈGLE 0 — LECTURE SEULE ━━━
+Tu es un LECTEUR, pas un calculateur.
+✅ Copie exactement ce qui est écrit dans l'image.
+❌ Ne calcule jamais, ne déduis jamais, n'invente jamais.
+→ Champ absent = null.
+
+━━━ RÈGLE 1 — FOURNISSEUR vs CLIENT ━━━
+FOURNISSEUR = entité qui a créé ce document → logo/en-tête, RC, IF, RIB, pied de page.
+  Si le logo est illisible → cherche le nom dans le pied de page ou les mentions légales.
+CLIENT = entité destinataire → bloc "Facturé à" / "votre compte" / "Destinataire" / encadré.
+  "N° client", "Code client", "N° abonné", "N° compte" = champs CLIENT uniquement.
+⚠️ Un champ "N° client" ne va jamais dans le bloc fournisseur.
+⚠️ Si fournisseur et client ont la même adresse → l'un des deux est mal identifié.
+
+━━━ RÈGLE 2 — TABLEAU DES ARTICLES ━━━
+Lis visuellement chaque colonne séparément :
+  - "quantite"      → colonne QTE / Quantité (nombre simple : 3, 10, 300)
+  - "prix_unitaire" → colonne Prix H.T. / P.U.H.T / Prix Uni HT
+  - "total_ht"      → colonne Montant H.T. / Total H.T. par ligne
+  - "unite"         → colonne U / Unité (M3, KG, U, pièce...)
+⚠️ Le N° Série/Lot (ex: 200237-2-00-237) N'EST PAS la quantité.
+⚠️ Ne recalcule pas total_ht = quantite × prix_unitaire.
+
+━━━ RÈGLE 3 — SÉPARATEUR DÉCIMAL ━━━
+DEUX conventions coexistent dans les documents du Maghreb :
+CAS A — millimes tunisiens : POINT + EXACTEMENT 3 chiffres = décimales → garder tel quel.
+  33.529 → 33.529 ✅   2.347 → 2.347 ✅   36.476 → 36.476 ✅
+  ❌ JAMAIS convertir 33.529 en 33529 ou 33529.00
+CAS B — virgule décimale + point/espace milliers :
+  82,775 → 82.775 ✅   1.200,50 → 1200.50 ✅   1 833,33 → 1833.33 ✅
+Dans le JSON : utilise toujours le POINT comme séparateur décimal.
+
+━━━ RÈGLE 4 — MONTANTS GLOBAUX ━━━
+Identifie chaque ligne par son libellé :
+  "montant_ht"   → "Total HT" / "Total Hors Taxes" / "Base HT" / "المجموع خالي من الأداءات"
+  "montant_tva"  → ligne "TVA XX%" uniquement (pas droit de timbre, pas redevances)
+  "tva_rate"     → le pourcentage associé à la ligne TVA (19, 20, 7...)
+  "timbre_fiscal"→ "Droit de timbre sur facture" / "Timbre fiscal"
+  "net_a_payer"  → "Net à payer" / "Total TTC" / "Total des charges" / "المبلغ الجملي"
+⚠️ Jamais de calcul : copie la valeur imprimée sur la ligne correspondante.
+
+━━━ RÈGLE 5 — DEVISE ━━━
+Lis depuis le document (jamais de valeur par défaut) :
+  "Dinars" / "DT" / "TND"  → "DT"
+  "Dirhams" / "DH" / "MAD" → "DH"
+  "Euros" / "EUR" / "€"    → "EUR"
+  Non mentionné             → null
+
+━━━ RÈGLE 6 — DÉTECTION TYPE ━━━
+{"facture" if not mode_auto else ""}{"" if not mode_auto else '''Identifie le type :
+  → "facture"          : vois "Facture", TVA, articles, montant TTC
+  → "lettre_de_change" : vois "Lettre de change", "tiré", "tireur", "domiciliation"'''}
+
+━━━ FORMAT DE SORTIE ━━━
+Retourne UNIQUEMENT un objet JSON valide. Pas de markdown (```), pas d'explication.
+
+Pour une FACTURE :
+{{"_document_type":"facture","articles":[{{"designation":"...","quantite":...,"unite":"...","prix_unitaire":...,"total_ht":...}}],"montant_ht":...,"montant_tva":...,"tva_rate":...,"timbre_fiscal":...,"net_a_payer":...,"date_echeance":null,"mode_paiement":null,"reference_bancaire":null,"email_fournisseur":null,"email_client":null,"telephone_fournisseur":null,"telephone_client":null,"adresse_fournisseur":null,"adresse_client":null,"matricule_fiscal_fournisseur":null,"matricule_fiscal_client":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null,"devise":null,"reference_commande":null,"bon_livraison":null}}
+
+Pour une LETTRE DE CHANGE :
+{{"_document_type":"lettre_de_change","date_creation":null,"lieu_paiement":null,"lieu_creation":null,"banque_domiciliataire":null,"swift_bic":null,"rib_tire":null,"endossements":[],"aval_bancaire":null,"aval_details":null,"date_acceptance":null,"date_presentation":null,"telephone_tire":null,"telephone_tireur":null,"email_tire":null,"email_tireur":null,"adresse_tire":null,"adresse_tireur":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null,"devise":null}}
+
+JSON :"""
+
+
+# ── Outil 5 : extract_entities_from_image ────────────────────────────────────
+
+@tool
+def extract_entities_from_image(
+    image_path: str,
+    document_type: str,
+    base_entities_json: str,
+) -> str:
+    """
+    Extrait directement les entités structurées depuis une image de document commercial.
+    Utilise Qwen2-VL-7B qui VOIT visuellement les colonnes du tableau.
+    → Résout la confusion de colonnes des tableaux à layouts variés.
+
+    Paramètres :
+      image_path         : chemin vers l'image (JPG, PNG, TIFF, WEBP)
+      document_type      : "facture" | "lettre_de_change" | "auto"
+      base_entities_json : JSON des entités déjà extraites (peut être "{}")
+
+    Retourne un JSON string des entités extraites directement depuis l'image.
+    """
+    try:
+        base = json.loads(base_entities_json) if base_entities_json else {}
+    except Exception:
+        base = {}
+
+    prompt = _build_extraction_prompt(document_type, base)
+
+    # PDF scanné : convertir chaque page en image
+    suffix = Path(image_path).suffix.lower()
+    if suffix == ".pdf":
+        try:
+            from pdf2image import convert_from_path
+            pages = convert_from_path(image_path, dpi=200)
+            tmpdir = tempfile.gettempdir()
+            all_results = []
+
+            for i, page_img in enumerate(pages):
+                tmp_path = os.path.join(tmpdir, f"_vision_page_{i + 1}.png")
+                page_img.save(tmp_path, "PNG")
+                try:
+                    page_result = _call_vision_llm(tmp_path, prompt)
+                    all_results.append(page_result)
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+            # Pour un PDF multi-pages : retourne la première page (page principale)
+            content = all_results[0] if all_results else "{}"
+        except Exception as e:
+            return json.dumps({"error": f"Erreur conversion PDF : {str(e)}"}, ensure_ascii=False)
+    else:
+        content = _call_vision_llm(image_path, prompt)
+
+    # Nettoyage et parsing JSON
+    content = content.strip()
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0].strip()
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0].strip()
+
+    try:
+        parsed = json.loads(content)
+        return json.dumps(parsed, ensure_ascii=False, indent=2)
+    except json.JSONDecodeError:
+        repaired = _repair_truncated_json(content)
+        try:
+            parsed = json.loads(repaired)
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except Exception:
+            return json.dumps({"error": "JSON invalide", "raw": content[:300]}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+# ── Outil 4 : extract_visual_fields ──────────────────────────────────────────
+
+@tool
+def extract_visual_fields(image_path: str, document_type: str = "auto") -> str:
+    """
+    Analyse visuelle directe via Gemini Vision (Section II — Gouvernance).
+    Détecte les éléments que l'OCR texte ne peut pas capturer :
+      - Tampons / cachets humides (ronds, ovales, rectangulaires)
+      - Signatures manuscrites (du tiré, du tireur, du fournisseur)
+      - Annotations et notes manuscrites (texte griffonné à la main)
+      - État du document (original, duplicata, copie, endommagé)
+      - Présence et lisibilité du logo de l'entreprise
+      - Aval bancaire (case cochée ou tampon dans la zone Aval)
+
+    Retourne un JSON string avec uniquement les champs visuels.
+    """
+    is_traite = "lettre" in document_type.lower() or "change" in document_type.lower()
+
+    if is_traite:
+        champs_json = """{
+  "cachet_present": true/false,
+  "signature_tire": true/false,
+  "signature_tireur": true/false,
+  "aval_bancaire": true/false,
+  "aval_details": "texte dans la case Aval si remplie, sinon null",
+  "notes_manuscrites": "tout texte manuscrit visible (montant en lettres, annotations, etc.)",
+  "etat_document": "original | duplicata | copie | endommagé",
+  "banque_domiciliataire": "texte dans la zone Domiciliation (nom banque + agence), sinon null",
+  "nom_adresse_tire": "texte dans la zone Nom et adresse du Tiré, sinon null"
+}"""
+        instructions_specifiques = """
+- "signature_tire"       : la zone "Signature du tiré / إمضاء المسحوب عليه" (gauche) contient-elle une signature ou tampon ?
+- "signature_tireur"     : la zone "Signature du tireur / توقيع الساحب" (droite bas) contient-elle une signature ou tampon ?
+- "aval_bancaire"        : la case "Aval / الكفالة" est-elle remplie, tamponnée ou cochée ? (true même si c'est un tampon)
+- "cachet_present"       : compte tous les tampons ronds/ovaux sur le document (true dès qu'il y en a 1)
+- "banque_domiciliataire": lis le texte dans la zone "Domiciliation / اسم وعنوان الفرع"
+- "nom_adresse_tire"     : lis le texte dans la zone "Nom et adresse du Tiré / اسم وعنوان المسحوب عليه"
+- "notes_manuscrites"    : lis le "Montant en lettres" manuscrit et toute autre annotation à la main"""
+        etape_articles = ""
+        max_tok = 1024
+    else:
+        champs_json = """{
+  "cachet_present": true/false,
+  "signature_presente": true/false,
+  "notes_manuscrites": "texte écrit à la main visible (hors champs imprimés), sinon null",
+  "etat_document": "original | duplicata | copie | endommagé",
+  "logo_detecte": true/false,
+  "logo_nom": "nom lisible dans le logo ou null",
+  "articles": [
+    {
+      "designation"     : "texte exact de la colonne Désignation/Description",
+      "quantite"        : null,
+      "unite"           : "M2 / KG / U / pièce / null",
+      "prix_unitaire_ht": null,
+      "tva_rate_ligne"  : "19% / 7% / 13% / null",
+      "total_ht_ligne"  : null
+    }
+  ]
+}"""
+        instructions_specifiques = """
+- "signature_presente" : y a-t-il un paraphe, une signature manuscrite ou un tampon dans la zone signature ?
+- "cachet_present"     : y a-t-il un tampon humide (rond, ovale, rectangulaire) visible sur le document ?
+- "logo_nom"           : si un logo d'entreprise est visible en haut, quel est le nom lisible ?"""
+        etape_articles = """
+━━━ ÉTAPE 5 : TABLEAU DES ARTICLES ━━━
+Cherche un tableau avec colonnes : N° | Désignation | QTE | Prix U.HT | TVA% | Montant HT
+(les noms de colonnes varient, mais l'ordre est typiquement ce schéma)
+
+RÈGLE FONDAMENTALE — LIS CHAQUE COLONNE INDÉPENDAMMENT :
+  • Identifie d'abord la ligne d'en-tête (noms des colonnes)
+  • Pour chaque ligne d'article, lis la valeur de CHAQUE colonne en restant dans sa bande verticale
+  • "quantite"       → colonne QTE / Qté / Quantité  — toujours un nombre ENTIER ou simple (3, 10, 300)
+  • "prix_unitaire"  → colonne P.U.H.T / Prix U.HT / Prix Unitaire — toujours un prix avec décimales
+  • "total_ht"       → colonne Montant HT / Total H.T. par ligne
+
+⚠️ PIÈGES VISUELS :
+  - La colonne QTE et la colonne P.U.H.T sont côte à côte → regarde l'en-tête pour identifier laquelle est QTE
+  - Un N° série/lot (ex: 200237-2) dans une colonne ≠ quantité — la quantité est dans la colonne étiquetée QTE
+  - Si le document est une facture de SERVICES (téléphone, internet, électricité, eau) sans tableau d'articles → articles = []
+
+NOTATION MILLIMES TUNISIENS :
+  - Prix avec POINT + 3 chiffres = millimes (4.987 = 4 DT 987 millimes → garder 4.987, jamais 4987)
+  - Quantité entière : 8 → 8, jamais 8.000"""
+        max_tok = 4096
+
+    prompt = f"""Tu es un expert en analyse visuelle de documents officiels.
+Regarde ATTENTIVEMENT chaque zone de cette image — ne lis pas le texte imprimé, regarde les éléments graphiques.
+
+━━━ ÉTAPE 1 : DÉTECTION DES TAMPONS (CACHETS) ━━━
+Un tampon (cachet humide) se reconnaît à :
+  • Une forme circulaire, ovale ou rectangulaire avec du texte à l'intérieur
+  • De l'encre bleue, rouge ou noire déposée sur le papier (pas imprimée)
+  • Un bord légèrement irrégulier ou flou (contrairement au texte imprimé net)
+  • Il peut y en avoir plusieurs sur le même document
+→ Regarde dans TOUS les coins et sur tout le document.
+→ cachet_present = true dès qu'il y en a AU MOINS UN visible.
+
+━━━ ÉTAPE 2 : DÉTECTION DES SIGNATURES ━━━
+Une signature se reconnaît à :
+  • Un tracé manuscrit cursif ou un paraphe (même illisible)
+  • Un tampon dans une zone "Signature" vaut pour une signature
+  • Une case "Signature du tiré" remplie = signature_tire true
+  • Une case "Signature du tireur" remplie = signature_tireur true
+
+━━━ ÉTAPE 3 : AVAL BANCAIRE ━━━
+  • Cherche la zone étiquetée "Aval" ou "الكفالة"
+  • aval_bancaire = true si cette zone contient un tampon, une signature ou tout texte manuscrit
+
+━━━ ÉTAPE 4 : NOTES MANUSCRITES ━━━
+  • Tout texte écrit à la main (pas imprimé) — montants en lettres, annotations, dates griffonnées
+  • Copie le texte tel quel
+{etape_articles}
+
+━━━ FORMAT DE SORTIE ━━━
+Retourne UNIQUEMENT ce JSON (sans markdown, sans explication) :
+{champs_json}
+
+JSON :"""
+
+    # ── Appel Vision (Groq llama-4-scout en priorité, Gemini en fallback) ───────
+    api_key = os.getenv("GOOGLE_API_KEY")  # Gemini (optionnel)
+
+    if not os.getenv("GROQ_API_KEY") and not api_key:
+        return json.dumps({"error": "Aucune clé API vision (GROQ_API_KEY ou GOOGLE_API_KEY)"}, ensure_ascii=False)
+
+    content = ""
+    last_error = ""
+
+    try:
+        import base64
+
+        ext = Path(image_path).suffix.lower()
+        mime_map = {
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".png": "image/png",  ".bmp": "image/bmp",
+            ".tiff": "image/tiff", ".tif": "image/tiff",
+            ".webp": "image/webp",
+        }
+        mime_type = mime_map.get(ext, "image/jpeg")
+
+        with open(image_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        image_url_data = f"data:{mime_type};base64,{image_b64}"
+
+        # ── 1. Groq Vision (llama-4-scout — multimodal, clé déjà fonctionnelle) ──
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            try:
+                from openai import OpenAI as GroqClient
+                client = GroqClient(api_key=groq_key, base_url=GROQ_BASE_URL)
+                resp = client.chat.completions.create(
+                    model="meta-llama/llama-4-scout-17b-16e-instruct",
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url_data}},
+                        ],
+                    }],
+                    max_tokens=max_tok,
+                    temperature=0,
+                )
+                content = resp.choices[0].message.content.strip()
+                print(f"[VISUAL] Modèle utilisé : llama-4-scout (Groq)")
+            except Exception as e:
+                last_error = str(e)
+                print(f"[VISUAL] Groq vision → {last_error[:150]}")
+
+        # ── 2. Fallback : Gemini via LangChain ───────────────────────────────────
+        if not content:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from langchain_core.messages import HumanMessage
+            for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+                try:
+                    llm = ChatGoogleGenerativeAI(
+                        model=model_name, google_api_key=api_key,
+                        temperature=0, max_tokens=max_tok,
+                    )
+                    msg = HumanMessage(content=[
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url_data}},
+                    ])
+                    content = llm.invoke([msg]).content.strip()
+                    print(f"[VISUAL] Modèle utilisé : {model_name} (Gemini fallback)")
+                    break
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"[VISUAL] {model_name} → {last_error[:120]}")
+                    continue
+
+        if not content:
+            return json.dumps({"error": f"Aucun modèle vision disponible : {last_error[:200]}"}, ensure_ascii=False)
+
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+
+        parsed = json.loads(content)
+        print(f"[VISUAL] Champs visuels détectés : {parsed}")
+        return json.dumps(parsed, ensure_ascii=False, indent=2)
+
+    except json.JSONDecodeError as e:
+        return json.dumps({"error": f"JSON invalide : {e}", "raw": content[:300]}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": f"Erreur vision : {str(e)}"}, ensure_ascii=False)
+
+
+# ── Outil 5 : extract_augmented_entities ─────────────────────────────────────
+
+@tool
+def extract_augmented_entities(
+    raw_text: str,
+    base_entities_json: str,
+    document_type: str,
+) -> str:
+    """
+    Extrait les entités supplémentaires (augmentation) non capturées par le modèle fine-tuné.
+    Utilise Mistral AI (gratuit) pour l'extraction intelligente.
+
+    Paramètres :
+      raw_text           : texte brut extrait par les outils 2 ou 3
+      base_entities_json : JSON (string) des entités déjà extraites par le fine-tuné
+      document_type      : "facture" | "lettre_de_change" | "auto"
+
+    Retourne un JSON string des entités augmentées uniquement
+    (ne répète pas ce qui est déjà dans base_entities_json).
+
+    ── Pour une FACTURE, extrait :
+       articles, montant_ht, tva_rate, montant_tva, timbre_fiscal,
+       date_echeance, mode_paiement, reference_bancaire,
+       email_fournisseur, email_client, telephone_fournisseur, telephone_client,
+       adresse_fournisseur, adresse_client,
+       matricule_fiscal_fournisseur, matricule_fiscal_client,
+       tampon_present, signature_presente,
+       remarques_manuscrites, mentions_legales,
+       devise, reference_commande, bon_livraison
+
+    ── Pour une LETTRE DE CHANGE, extrait :
+       date_creation, lieu_paiement, lieu_creation,
+       banque_domiciliataire, swift_bic, rib_tire,
+       endossements, aval_bancaire, aval_details,
+       date_acceptance, date_presentation,
+       telephone_tire, telephone_tireur, email_tire, email_tireur,
+       adresse_tire, adresse_tireur,
+       tampon_present, signature_presente,
+       remarques_manuscrites, mentions_legales, devise
+    """
+    try:
+        base = json.loads(base_entities_json) if isinstance(base_entities_json, str) else base_entities_json
+        base_keys = list(base.keys()) if base else []
+    except Exception:
+        base = {}
+        base_keys = []
+
+    doc_upper = (document_type or "auto").upper()
+    mode_auto = doc_upper in ("AUTO", "") or not base_keys
+
+    # ── Schémas JSON des deux types de documents ─────────────────────────────
+    # Le GLM principal extrait déjà : fournisseur nom, client nom, date, numéro,
+    # montant TTC (factures) ; tiré, tireur, montant, RIB, domiciliation (traites).
+    # L'agent extrait TOUT LE RESTE — organisé en 3 sections.
+
+    schema_facture = """{
+  "_document_type": "facture",
+
+  // ── I. ARTICLES & TAXES ───────────────────────────────────────────────────
+  "articles": [
+    {
+      "designation"     : "texte exact de la colonne Désignation",
+      "quantite"        : null,
+      "unite"           : "M2 / KG / U / pièce / etc.",
+      "prix_unitaire_ht": null,
+      "tva_rate_ligne"  : "19% / 7% / 13% / exonéré",
+      "total_ht_ligne"  : null
+    }
+  ],
+  "montant_ht"         : null,
+  "montant_tva"        : null,
+  "tva_rate"           : "taux TVA global du pied de facture (ex: 19%)",
+  "remise_globale"     : null,
+  "timbre_fiscal"      : null,
+  "net_a_payer_lettres": "COPIE MOT POUR MOT le texte 'en toutes lettres' tel qu'il est écrit dans le document — null si absent. RÈGLE ABSOLUE : garde la devise EXACTE du document (DINARS, DOLLARS, EUROS, DIRHAMS...) sans jamais la changer. NE PAS INVENTER, NE PAS CONVERTIR un nombre en lettres.",
+
+  // ── II. VISUEL & SÉCURITÉ ─────────────────────────────────────────────────
+  "cachet_present"     : true/false,
+  "signature_presente" : true/false,
+  "notes_manuscrites"  : "texte griffonné à la main (ex: Payé par chèque le...)",
+  "etat_document"      : "original | duplicata | copie | endommagé",
+  "logo_detecte"       : true/false,
+
+  // ── III. PAIEMENT & LOGISTIQUE ────────────────────────────────────────────
+  "mode_reglement"              : "Virement / Chèque / Traite / Espèces / Comptant / texte exact",
+  "date_echeance"               : "DD/MM/YYYY",
+  "email_fournisseur"           : null,
+  "telephone_fournisseur"       : null,
+  "adresse_fournisseur"         : null,
+  "matricule_fiscal_fournisseur": null,
+  "email_client"                : null,
+  "telephone_client"            : null,
+  "adresse_client"              : null,
+  "matricule_fiscal_client"     : null,
+  "reference_commande"          : null,
+  "reference_bon_livraison"     : null,
+  "devise"                      : "DT / DH / EUR / USD"
+}"""
+
+    schema_lettre = """{
+  "_document_type": "lettre_de_change",
+
+  // ── I. FINANCIER ──────────────────────────────────────────────────────────
+  "montant_en_lettres" : "montant écrit en toutes lettres",
+  "timbre_fiscal"      : null,
+  "devise"             : "DT / DH / EUR",
+
+  // ── II. VISUEL & SÉCURITÉ ─────────────────────────────────────────────────
+  "signature_tire"     : true/false,
+  "signature_tireur"   : true/false,
+  "cachet_present"     : true/false,
+  "aval_bancaire"      : true/false,
+  "aval_details"       : "banque avaliste, date, conditions",
+  "notes_manuscrites"  : "annotations manuscrites visibles",
+  "etat_document"      : "original | duplicata | copie",
+
+  // ── III. LOGISTIQUE ───────────────────────────────────────────────────────
+  "lieu_creation"         : "ville où la lettre a été créée",
+  "lieu_paiement"         : "ville où elle doit être payée",
+  "banque_domiciliataire" : null,
+  "swift_bic"             : null,
+  "rib_tire"              : null,
+  "date_acceptance"       : "DD/MM/YYYY",
+  "date_presentation"     : "DD/MM/YYYY",
+  "endossements"          : [{"endosseur": null, "date": null, "montant": null}],
+  "telephone_tire"        : null,
+  "telephone_tireur"      : null,
+  "email_tire"            : null,
+  "email_tireur"          : null,
+  "adresse_tire"          : null,
+  "adresse_tireur"        : null,
+  "reference_commande"    : null,
+  "mode_reglement"        : null
+}"""
+
+    # ── Construction du contexte ──────────────────────────────────────────────
+    if mode_auto:
+        type_instruction = """ÉTAPE 1 — TYPE DE DOCUMENT
+Identifie le type en cherchant ces mots-clés exacts :
+  → "facture", "FACTURE", "Facture"                    = "facture"
+  → "lettre de change", "traite", "tiré", "tireur"    = "lettre_de_change"
+"""
+        schema_a_utiliser = f"FACTURE :\n{schema_facture}\n\nLETTRE DE CHANGE :\n{schema_lettre}"
+    elif "FACTURE" in doc_upper:
+        type_instruction = 'Type confirmé : "facture".\n'
+        schema_a_utiliser = schema_facture
+    else:
+        type_instruction = 'Type confirmé : "lettre_de_change".\n'
+        schema_a_utiliser = schema_lettre
+
+    # ── Prompt expert ────────────────────────────────────────────────────────
+    prompt = f"""Tu es un expert en analyse contextuelle de documents commerciaux du Maghreb (Tunisie, Maroc, Algérie).
+Tu reçois le texte brut produit par un OCR et tu extrais les données structurées détaillées.
+
+CONTEXTE : Un modèle principal a déjà extrait les champs basiques (fournisseur nom, client nom, date, numéro, montant TTC pour les factures ; tiré, tireur, montant, RIB pour les traites).
+TON RÔLE : Extraire tout le reste — les détails des articles, les taxes, les éléments visuels, les coordonnées, les références logistiques.
+
+═══════════════════════════════════════════
+TEXTE BRUT EXTRAIT PAR OCR :
+═══════════════════════════════════════════
+{raw_text}
+═══════════════════════════════════════════
+
+{type_instruction}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 0 — LECTURE SEULE (LA PLUS IMPORTANTE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tu es un LECTEUR, pas un calculateur.
+✅ Copie exactement ce qui est écrit.
+❌ N'effectue AUCUN calcul (pas de somme, pas de produit, pas de déduction).
+❌ N'invente AUCUNE valeur absente.
+❌ Ne complète pas un champ par logique ou estimation.
+→ Si un champ n'est pas explicitement écrit dans le texte : retourne null.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 1 — IDENTIFIER FOURNISSEUR vs CLIENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Utilise la SÉMANTIQUE des champs, pas leur position dans la page.
+
+FOURNISSEUR = l'entité qui a créé et signé ce document.
+  Indices universels : logo en haut, en-tête, pied de page, RC/IF/ICE/SIRET, RIB fournisseur.
+  Si l'OCR a mal lu le logo : cherche le nom dans le pied de page ou les mentions légales
+  (ex: "SA au capital de...", "Siège social:", "www.", adresse email @société).
+
+CLIENT = l'entité à qui est adressé ce document.
+  Indices universels : bloc "Facturé à" / "Client :" / "Destinataire" / "votre compte" /
+  "Adressé à" / encadré séparé, ou côté droit/bas de l'en-tête.
+
+RÈGLE DE SÉPARATION DES CHAMPS :
+  Les champs suivants appartiennent TOUJOURS au CLIENT, jamais au fournisseur :
+    "N° client", "Code client", "N° compte client", "N° abonné", "votre N° de contrat"
+  Les champs suivants appartiennent TOUJOURS au fournisseur :
+    RC (Registre du Commerce), IF/ICE/SIRET (identifiant fiscal), RIB fournisseur
+
+⚠️ Si les deux entités ont des adresses similaires → c'est que l'une d'elles a mal été identifiée.
+⚠️ Ne pas mettre "n_client", "n_facture" ou "code_client" dans le bloc fournisseur.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 2 — TABLEAU DES ARTICLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Le tableau a souvent ces colonnes dans cet ordre :
+  Code/Ref | N° BL | Désignation | N° Série/Lot | Quantité | Prix Unitaire HT | Montant HT | TVA%
+
+Pour chaque article extrais :
+  "designation"    → colonne "Désignation" ou "Description" — le nom du produit uniquement
+  "quantite"       → colonne "QTE", "Qté", "Quantité" — un nombre entier ou décimal simple
+  "prix_unitaire"  → colonne "P.U.H.T", "Prix Uni HT", "P.U.V.HT" — prix sans taxes
+  "total_ht"       → colonne "Montant HT", "Total HT" par ligne — copie tel quel
+
+⚠️ PIÈGES FRÉQUENTS dans les tableaux :
+  ❌ Le N° Série/Lot (ex: "200237-2-00-237") N'EST PAS la quantité → quantite = colonne QTE
+  ❌ Le N° BL (ex: "CB216296") N'EST PAS la désignation → désignation = nom du produit
+  ❌ Ne recalcule pas total_ht = quantite × prix_unitaire → copie la colonne
+  ✅ Si une ligne ne contient que le N° série sur plusieurs sous-lignes, c'est une seule ligne d'article
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 3 — SÉPARATEUR DÉCIMAL (TRÈS IMPORTANT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Dans les documents tunisiens, marocains et algériens, DEUX conventions coexistent :
+
+CAS A — notation en millimes tunisiens (3 décimales avec point) :
+  → POINT suivi d'EXACTEMENT 3 chiffres = décimales en millimes (1 DT = 1000 millimes)
+  → Garde la valeur telle quelle dans le JSON.
+  33.529   → 33.529    ✅  (33 DT et 529 millimes — JAMAIS 33529 ni 33529.00)
+  2.347    → 2.347     ✅  (2 DT et 347 millimes — JAMAIS 2347 ni 2347.00)
+  36.476   → 36.476    ✅  (36 DT et 476 millimes — JAMAIS 36476 ni 36476.00)
+  0.600    → 0.600     ✅  (timbre fiscal — JAMAIS 600)
+
+CAS B — virgule décimale (2 décimales) + point/espace milliers :
+  → VIRGULE "," est le séparateur décimal → convertis en point dans le JSON
+  → POINT "." avant une virgule = séparateur de milliers → supprime
+  82,775   → 82.775    ✅
+  1.200,50 → 1200.50   ✅  (point=milliers car suivi d'une virgule)
+  1 200,50 → 1200.50   ✅  (espace=milliers)
+  10 500,00→ 10500.00  ✅
+
+⚠️ RÈGLE CLÉ : Un point suivi d'EXACTEMENT 3 chiffres en fin de nombre = millimes → GARDER.
+⚠️ JAMAIS supprimer ou ignorer les décimales d'un montant.
+⚠️ Dans le JSON final, utilise TOUJOURS le point comme séparateur décimal.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 4 — MONTANTS GLOBAUX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Identifie chaque ligne par son LIBELLÉ exact — ne confonds pas les lignes :
+
+  "montant_ht"    → libellé : "Total HT", "Total Hors Taxes", "Total Hors TVA",
+                               "المجموع خالي من الأداءات", "Sous-total HT", "Base HT"
+  "montant_tva"   → libellé : "TVA", "Montant TVA", "T.V.A", suivi du taux (ex: "TVA 19%")
+                               ⚠️ PAS le droit de timbre, PAS les redevances
+  "tva_rate"      → cherche "19%", "20%", "7%" associé à la ligne TVA uniquement
+  "timbre_fiscal" → libellé : "Droit de timbre sur facture", "Timbre fiscal"
+                               ⚠️ PAS "Droit de timbre sur téléphonie/internet" (c'est une taxe séparée)
+  "net_a_payer"   → libellé : "Net à payer", "Total TTC", "Total des charges", "NET A PAYER",
+                               "المبلغ الجملي", "Montant total"
+
+⚠️ JAMAIS de calcul :
+  ❌ montant_ht ≠ somme des total_ht des articles
+  ❌ montant_tva ≠ montant_ht × tva_rate / 100
+  ✅ Copie uniquement la valeur de la ligne identifiée par son libellé
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 5 — DEVISE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Lis la devise depuis le document (ne suppose jamais "DT" par défaut) :
+  "Dinars" / "DT" / "TND"     → "DT"
+  "Dirhams" / "DH" / "MAD"    → "DH"
+  "Euros" / "EUR" / "€"       → "EUR"
+  "Dollars" / "USD" / "$"     → "USD"
+Si aucune devise n'est mentionnée → null
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 6 — CHAMPS SPÉCIAUX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  "bon_livraison"     → cherche "N° BL", "BL N°", "Bon de Livraison" — prends la valeur
+  "reference_commande"→ cherche "N° Commande", "BC", "Bon de commande" — pas le N° Facture
+  "tampon_present"    → true si tu vois "cachet", "tampon", "sceau", ou du texte circulaire/illisible typique d'un tampon
+  "signature_presente"→ true si tu vois "signé", "signature", paraphe, ou mention de validation manuscrite
+  "mode_paiement"     → cherche "Comptant", "Virement", "Chèque", "Traite", "Espèces", "Cond. Livraison"
+  "date_echeance"     → c'est la date d'échéance de PAIEMENT, pas la date de facture (champ "Date")
+  "matricule_fiscal_fournisseur" → IF, ICE, SIRET, TVA intracom appartenant au FOURNISSEUR (en-tête)
+  "matricule_fiscal_client"      → IF, ICE, SIRET appartenant au CLIENT (bloc client)
+
+  "net_a_payer_lettres" → ⚠️ RÈGLE ABSOLUE : copie le texte EXACTEMENT tel qu'il est écrit dans le document.
+    La devise dans ce champ (DINARS / DOLLARS / EUROS / DIRHAMS) doit être copiée sans aucun changement.
+    Si le document écrit "DOLLARS", tu copies "DOLLARS" — même si tu penses que c'est une erreur.
+    Si le document écrit "DINARS", tu copies "DINARS".
+    ❌ NE JAMAIS remplacer la devise par une autre.
+    ❌ NE JAMAIS inventer ce texte si tu ne le vois pas clairement.
+    → null si ce champ est absent du document.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 7 — ERREURS OCR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+L'OCR peut faire des erreurs de lecture. Corrige si tu es certain :
+  - "0" ↔ "O" dans les noms propres
+  - "1" ↔ "l" dans les noms
+  - Espaces manquants dans les mots composés
+  - Ne corrige PAS les montants ou numéros (risque d'erreur)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FORMAT DE SORTIE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Retourne UNIQUEMENT un objet JSON valide correspondant au schéma ci-dessous.
+  ❌ Pas de markdown (pas de ```json ni ```)
+  ❌ Pas d'explication avant ou après
+  ❌ Pas de commentaire dans le JSON (supprime les // ...)
+  ✅ Valeurs absentes → null (jamais "" chaîne vide)
+  ✅ Décimales exactes copiées depuis le document (2.252 reste 2.252)
+  ✅ Booléens : true / false (pas de guillemets)
+
+SCHÉMA À UTILISER :
+{schema_a_utiliser}
+
+JSON :"""
+
+    content = ""
+    try:
+        content = _call_llm(prompt)
+
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+
+        # Tente le parsing direct
+        try:
+            parsed = json.loads(content)
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except json.JSONDecodeError:
+            # Réparation automatique si JSON tronqué (réponse trop longue)
+            repaired = _repair_truncated_json(content)
+            parsed = json.loads(repaired)
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+
+    except json.JSONDecodeError as e:
+        return json.dumps(
+            {"error": f"JSON invalide : {str(e)}", "raw_response": content[:500] + "…"},
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Erreur LLM extraction : {str(e)}"}, ensure_ascii=False)

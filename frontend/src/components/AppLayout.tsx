@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { logout, getSession } from "@/lib/auth";
 import { useApp } from "@/contexts/AppContext";
+import ChatbotWidget from "@/components/ChatbotWidget";
 import odsinetLogo from "@/assets/odsinet-logo.png";
 
 const useNavSections = (t: (k: string) => string) => [
@@ -339,6 +340,9 @@ const AppLayout = ({ children }: AppLayoutProps) => {
           {children}
         </main>
       </div>
+
+      {/* Assistant IA flottant — visible sur toutes les pages */}
+      <ChatbotWidget />
     </div>
   );
 };

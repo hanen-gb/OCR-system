@@ -47,8 +47,9 @@ app = modal.App("glmocr-backend", image=image)
 # ── Volume cache : modele telecharge une seule fois ───────────────────────────
 model_cache = modal.Volume.from_name("glmocr-model-cache", create_if_missing=True)
 
-HF_MODEL_REPO = "Goubaa/glmocr-factures"
-CACHE_PATH    = "/model_cache"
+HF_MODEL_REPO      = "Goubaa/glmocr-factures"
+HF_CLASSIFIER_REPO = "Goubaa/mobilenet-classifier"   # classificateur facture/traite
+CACHE_PATH         = "/model_cache"
 
 ENTITIES = ["CLIENT", "FOURNISSEUR", "DATE_FACTURE", "MONTANT_TTC", "NUMERO_FACTURE"]
 
@@ -62,6 +63,75 @@ PROMPT = (
     "Reponds UNIQUEMENT avec un objet JSON valide.\n"
     "Si une information est absente, mettre N/A."
 )
+
+
+# ── Classificateur (CPU — MobileNet léger) ───────────────────────────────────
+@app.cls(
+    cpu=2,
+    scaledown_window=600,
+    timeout=60,
+    volumes={CACHE_PATH: model_cache},
+)
+class Classifier:
+
+    @modal.enter()
+    def load(self):
+        import torch
+        import torch.nn as nn
+        import torchvision.models as models
+        from huggingface_hub import hf_hub_download
+
+        weights_path = hf_hub_download(
+            repo_id=HF_CLASSIFIER_REPO,
+            filename="best_model.pth",
+            cache_dir=CACHE_PATH,
+        )
+
+        # Checkpoint dict sauvegardé avec torch.save({..., "model_state": ..., "classes": [...]})
+        checkpoint = torch.load(weights_path, map_location="cpu")
+
+        # ["factures", "traites"] → index 0 = factures, index 1 = traites
+        classes = checkpoint.get("classes", ["factures", "traites"])
+        self.idx_to_class = {i: c for i, c in enumerate(classes)}
+
+        # Architecture identique au notebook Kaggle
+        net = models.mobilenet_v2(weights=None)
+        net.classifier = nn.Sequential(
+            nn.Dropout(p=0.4),
+            nn.Linear(1280, 256),
+            nn.ReLU(),
+            nn.Dropout(p=0.3),
+            nn.Linear(256, 2),
+        )
+        net.load_state_dict(checkpoint["model_state"])
+        net.eval()
+        self.model = net
+        print(f"Classifier OK — classes : {self.idx_to_class}")
+
+    @modal.method()
+    def classify(self, image_bytes: bytes) -> dict:
+        import io, torch
+        from PIL import Image
+        import torchvision.transforms as T
+
+        # Transform identique au test_transform du notebook Kaggle
+        transform = T.Compose([
+            T.Resize((224, 224)),
+            T.Grayscale(num_output_channels=3),   # obligatoire : même pipeline qu'à l'entraînement
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
+        image  = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tensor = transform(image).unsqueeze(0)   # (1, 3, 224, 224)
+
+        with torch.no_grad():
+            probs    = torch.softmax(self.model(tensor), dim=1)[0]
+            pred_idx = probs.argmax().item()
+
+        return {
+            "doc_type":   self.idx_to_class[pred_idx],   # "factures" | "traites"
+            "confidence": round(probs[pred_idx].item(), 4),
+        }
 
 
 # ── Classe principale (GPU T4) ────────────────────────────────────────────────
@@ -229,7 +299,25 @@ def fastapi_app():
         image_bytes = await file.read()
 
         try:
-            result = await Model().predict.remote.aio(image_bytes)
+            # ── Étape 1 : classification du type de document ─────────────────
+            classification = await Classifier().classify.remote.aio(image_bytes)
+            doc_type       = classification["doc_type"]        # "facture" | "traite"
+            confidence     = classification["confidence"]
+
+            # ── Étape 2 : routage vers le bon modèle ─────────────────────────
+            if doc_type == "factures":
+                result = await Model().predict.remote.aio(image_bytes)
+            else:
+                # GLM Traites non encore déployé — stub temporaire
+                result = {
+                    "entities":  [],
+                    "full_text": "",
+                    "timing":    {"inference_ms": 0, "total_ms": 0},
+                }
+
+            result["doc_type"]              = doc_type
+            result["classification_confidence"] = confidence
+
         except Exception as e:
             raise HTTPException(500, f"Erreur inference : {e}")
 
