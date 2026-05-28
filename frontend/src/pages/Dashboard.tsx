@@ -43,19 +43,19 @@ interface KpiCardProps {
 }
 
 const KpiCard = ({ label, value, sub, icon: Icon, delay = 0, accent }: KpiCardProps) => (
-  <motion.div {...fade(delay)} className="glass-card rounded-xl p-5">
+  <motion.div {...fade(delay)} className="glass-card rounded-xl p-5 hover-lift group cursor-default">
     <div className="flex items-start justify-between">
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
+        <p className="text-xs font-medium text-muted-foreground mb-1 transition-colors duration-200 group-hover:text-foreground/70">{label}</p>
         <p
-          className="text-2xl font-bold led-text truncate"
-          style={{ color: accent ?? "hsl(var(--primary))" }}
+          className="text-2xl font-bold led-text truncate transition-all duration-300 group-hover:scale-105 origin-left"
+          style={{ color: accent ?? "hsl(var(--primary))", display: "block" }}
         >
           {value}
         </p>
         {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
-      <div className="p-2.5 rounded-xl bg-primary/10 shrink-0 ml-3">
+      <div className="p-2.5 rounded-xl bg-primary/10 shrink-0 ml-3 icon-box">
         <Icon className="w-5 h-5 text-primary" />
       </div>
     </div>

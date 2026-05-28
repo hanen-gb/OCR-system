@@ -138,16 +138,6 @@
 }
 
 @layer utilities {
-  /* ===== GLASS CARDS ===== */
-  .glass-card {
-    @apply bg-card border border-border;
-    box-shadow: var(--glass-shadow);
-  }
-  .glass-card-hover {
-    @apply bg-card border border-border transition-all duration-200 hover:border-primary/30;
-    box-shadow: var(--glass-shadow);
-  }
-
   /* ===== GRADIENT TEXT ===== */
   .gradient-text {
     background: var(--gradient-primary);
@@ -164,53 +154,6 @@
     text-shadow: 0 0 10px hsl(var(--primary) / 0.4);
   }
 
-  /* ===== UPLOAD ZONE ===== */
-  .upload-zone {
-    @apply border-2 border-dashed border-border rounded-xl transition-all duration-300 cursor-pointer;
-  }
-  .upload-zone:hover, .upload-zone-active {
-    @apply border-primary/60;
-    background: hsl(var(--primary) / 0.04);
-  }
-
-  /* ===== SIDEBAR NAV ===== */
-  .nav-item {
-    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150;
-    color: hsl(var(--sidebar-foreground));
-  }
-  .nav-item:hover {
-    background: hsl(var(--sidebar-accent));
-    color: hsl(var(--sidebar-accent-foreground));
-  }
-  .nav-item.active {
-    background: hsl(var(--sidebar-accent));
-    color: hsl(var(--sidebar-primary));
-  }
-
-  /* ===== PROGRESS BAR ===== */
-  .progress-bar {
-    @apply h-2 rounded-full overflow-hidden;
-    background: hsl(var(--muted));
-  }
-  .progress-fill {
-    @apply h-full rounded-full transition-all duration-500;
-    background: var(--gradient-primary);
-  }
-
-  /* ===== TOPBAR ===== */
-  .topbar {
-    @apply border-b border-border;
-    background: var(--topbar-bg);
-    backdrop-filter: blur(12px);
-  }
-
-  /* ===== SECTION HEADER ===== */
-  .section-header {
-    @apply text-xs font-semibold uppercase tracking-widest;
-    color: hsl(var(--sidebar-foreground));
-    opacity: 0.5;
-  }
-
   /* ===== TABLE ===== */
   .data-table th {
     @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider;
@@ -223,17 +166,7 @@
     border-bottom: 1px solid hsl(var(--border));
   }
   .data-table tr:last-child td { border-bottom: none; }
-  .data-table tr:hover td { background: hsl(var(--primary) / 0.03); }
-
-  /* ===== INPUT BASE ===== */
-  .input-base {
-    @apply w-full px-3 py-2 rounded-lg text-sm outline-none transition-colors;
-    background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
-    color: hsl(var(--foreground));
-  }
-  .input-base::placeholder { color: hsl(var(--muted-foreground) / 0.5); }
-  .input-base:focus { border-color: hsl(var(--primary)); }
+  .data-table tr:hover td { background: hsl(var(--primary) / 0.04); transition: background 0.2s ease; }
 }
 
 /* ===== SCROLLBAR ===== */
@@ -266,4 +199,249 @@
 /* ===== RESPONSIVE ===== */
 @media (max-width: 640px) {
   .data-table th, .data-table td { @apply px-2 py-2 text-xs; }
+}
+
+/* ═══════════════════════════════════════════════════
+   KEYFRAMES
+═══════════════════════════════════════════════════ */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-7px); }
+}
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0   hsl(var(--primary) / 0.4); }
+  70%  { box-shadow: 0 0 0 10px hsl(var(--primary) / 0); }
+  100% { box-shadow: 0 0 0 0   hsl(var(--primary) / 0); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 1; }
+}
+
+@keyframes shimmer-move {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+@keyframes gradient-shift {
+  0%,100% { background-position: 0%   50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes scan-line {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  10%  { opacity: 0.6; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(800%);  opacity: 0; }
+}
+
+@keyframes border-spin {
+  from { --angle: 0deg; }
+  to   { --angle: 360deg; }
+}
+
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════
+   ANIMATION UTILITIES
+═══════════════════════════════════════════════════ */
+.animate-float      { animation: float 3.5s ease-in-out infinite; }
+.animate-spin-slow  { animation: spin-slow 10s linear infinite; }
+.animate-glow       { animation: glow-pulse 2s ease-in-out infinite; }
+.animate-slide-up   { animation: slide-in-up 0.4s ease forwards; }
+.animate-scan       { animation: scan-line 3s linear infinite; }
+
+/* ═══════════════════════════════════════════════════
+   HOVER LIFT — cards
+═══════════════════════════════════════════════════ */
+.hover-lift {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 36px hsl(var(--primary) / 0.14), var(--glass-shadow);
+  border-color: hsl(var(--primary) / 0.28) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   GLASS CARD — enhanced hover
+═══════════════════════════════════════════════════ */
+.glass-card {
+  @apply bg-card border border-border;
+  box-shadow: var(--glass-shadow);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.glass-card-hover {
+  @apply bg-card border border-border;
+  box-shadow: var(--glass-shadow);
+  transition: all 0.25s ease;
+}
+.glass-card-hover:hover {
+  border-color: hsl(var(--primary) / 0.38) !important;
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08), 0 10px 28px hsl(var(--primary) / 0.1);
+  transform: translateY(-2px);
+}
+
+/* ═══════════════════════════════════════════════════
+   NAV ITEM — icon micro-interactions
+═══════════════════════════════════════════════════ */
+.nav-item svg {
+  transition: transform 0.22s ease, filter 0.22s ease;
+}
+.nav-item:hover svg {
+  transform: scale(1.18) rotate(-6deg);
+}
+.nav-item.active svg {
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.55));
+}
+.nav-item {
+  @apply relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium;
+  color: hsl(var(--sidebar-foreground));
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+.nav-item:hover {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+  transform: translateX(2px);
+}
+.nav-item.active {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-primary));
+}
+
+/* ═══════════════════════════════════════════════════
+   PROGRESS BAR — animated shimmer
+═══════════════════════════════════════════════════ */
+.progress-bar  { @apply h-2 rounded-full overflow-hidden; background: hsl(var(--muted)); }
+.progress-fill {
+  @apply h-full rounded-full;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--primary)),
+    hsl(var(--primary-glow)),
+    hsl(var(--primary))
+  );
+  background-size: 200% 100%;
+  animation: shimmer-move 2.2s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   UPLOAD ZONE — scan line + shimmer on hover
+═══════════════════════════════════════════════════ */
+.upload-zone {
+  @apply border-2 border-dashed border-border rounded-xl cursor-pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+.upload-zone:hover,
+.upload-zone-active {
+  @apply border-primary/60;
+  background: hsl(var(--primary) / 0.04);
+  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.06), inset 0 0 30px hsl(var(--primary) / 0.03);
+}
+.upload-zone:hover::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.5), transparent);
+  animation: scan-line 2.5s linear infinite;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════
+   BUTTON GLOW
+═══════════════════════════════════════════════════ */
+.btn-glow {
+  transition: all 0.22s ease;
+}
+.btn-glow:hover {
+  box-shadow: 0 0 18px hsl(var(--primary) / 0.4), 0 0 36px hsl(var(--primary) / 0.12);
+  transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════
+   BRAND TEXT — glowing orbitron
+═══════════════════════════════════════════════════ */
+.brand-glow {
+  text-shadow: 0 0 18px hsl(215 80% 65% / 0.55), 0 0 36px hsl(215 80% 65% / 0.2);
+}
+
+/* ═══════════════════════════════════════════════════
+   ACTIVE NAV INDICATOR glow pulse
+═══════════════════════════════════════════════════ */
+.nav-indicator {
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════════════ */
+.topbar {
+  @apply border-b border-border;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px);
+  transition: box-shadow 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════
+   SECTION HEADER
+═══════════════════════════════════════════════════ */
+.section-header {
+  @apply text-xs font-semibold uppercase tracking-widest;
+  color: hsl(var(--sidebar-foreground));
+  opacity: 0.5;
+}
+
+/* ═══════════════════════════════════════════════════
+   INPUT BASE
+═══════════════════════════════════════════════════ */
+.input-base {
+  @apply w-full px-3 py-2 rounded-lg text-sm outline-none;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.input-base::placeholder { color: hsl(var(--muted-foreground) / 0.5); }
+.input-base:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
+}
+
+/* ═══════════════════════════════════════════════════
+   DECORATIVE ORB (LoginPage background)
+═══════════════════════════════════════════════════ */
+.login-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  pointer-events: none;
+  opacity: 0.18;
+  animation: float 6s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   ICON CONTAINER hover rotate
+═══════════════════════════════════════════════════ */
+.icon-box {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+.icon-box:hover,
+.group:hover .icon-box {
+  transform: rotate(12deg) scale(1.12);
+  box-shadow: 0 0 16px hsl(var(--primary) / 0.3);
+  background: hsl(var(--primary) / 0.2) !important;
 }

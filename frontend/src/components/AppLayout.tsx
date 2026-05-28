@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Upload, FileText, Settings,
-  ChevronLeft, ChevronRight, LogOut, User,
+  ChevronRight, LogOut, User,
   Sun, Moon, Languages, CalendarDays, Menu, X,
 } from "lucide-react";
 import { logout, getSession } from "@/lib/auth";
@@ -89,7 +89,7 @@ function SidebarContent({
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -8 }}
-              className="text-sm font-bold tracking-widest whitespace-nowrap"
+              className="text-sm font-bold tracking-widest whitespace-nowrap brand-glow"
               style={{ fontFamily: "'Orbitron', sans-serif", color: "hsl(215 80% 65%)", letterSpacing: "0.15em" }}
             >
               ODSI<span style={{ color: "hsl(var(--sidebar-accent-foreground))" }}>NET</span>
@@ -128,8 +128,8 @@ function SidebarContent({
                     {isActive && (
                       <motion.div
                         layoutId="active-nav"
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full"
-                        style={{ background: "hsl(var(--sidebar-primary))", boxShadow: "0 0 8px hsl(var(--sidebar-primary))" }}
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full nav-indicator"
+                        style={{ background: "hsl(var(--sidebar-primary))", boxShadow: "0 0 10px hsl(var(--sidebar-primary)), 0 0 20px hsl(var(--sidebar-primary) / 0.4)" }}
                       />
                     )}
                     <item.icon style={{ width: 18, height: 18 }} className="shrink-0" />
@@ -161,7 +161,7 @@ function SidebarContent({
         <button
           onClick={toggleTheme}
           title={theme === "dark" ? t("set_light") : t("set_dark")}
-          className="flex items-center justify-center rounded-lg p-2 transition-colors hover:bg-accent"
+          className="flex items-center justify-center rounded-lg p-2 transition-all duration-200 hover:bg-accent hover:scale-110 hover:rotate-12"
           style={{ color: "hsl(var(--sidebar-foreground))" }}
         >
           {theme === "dark"
@@ -171,7 +171,7 @@ function SidebarContent({
         <button
           onClick={() => setLang(lang === "fr" ? "en" : "fr")}
           title={lang === "fr" ? "Switch to English" : "Passer en français"}
-          className="flex items-center justify-center rounded-lg p-2 transition-colors hover:bg-accent gap-1"
+          className="flex items-center justify-center rounded-lg p-2 transition-all duration-200 hover:bg-accent hover:scale-110 gap-1"
           style={{ color: "hsl(var(--sidebar-foreground))" }}
         >
           <Languages style={{ width: 15, height: 15 }} />
@@ -266,16 +266,21 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         {/* Bouton collapse */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-20 z-10 w-6 h-6 rounded-full flex items-center justify-center transition-colors"
+          className="absolute -right-3 top-20 z-10 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-125 hover:border-primary/50"
           style={{
             background: "hsl(var(--sidebar-background))",
             border: "1px solid hsl(var(--sidebar-border))",
             color: "hsl(var(--sidebar-foreground))",
+            boxShadow: "0 0 8px hsl(var(--primary) / 0.15)",
           }}
         >
-          {collapsed
-            ? <ChevronRight style={{ width: 12, height: 12 }} />
-            : <ChevronLeft style={{ width: 12, height: 12 }} />}
+          <motion.span
+            animate={{ rotate: collapsed ? 0 : 180 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            style={{ display: "flex" }}
+          >
+            <ChevronRight style={{ width: 12, height: 12 }} />
+          </motion.span>
         </button>
       </motion.aside>
 

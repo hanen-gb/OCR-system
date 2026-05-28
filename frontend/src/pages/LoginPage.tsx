@@ -108,8 +108,12 @@ const Feedback = ({ type, children }: { type: "error" | "success"; children: Rea
 const SubmitBtn = ({ loading, children }: { loading: boolean; children: React.ReactNode }) => (
   <button
     type="submit" disabled={loading}
-    className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity disabled:opacity-60"
-    style={{ background: "#1e3a5f", color: "#e2e8f0", border: "1px solid rgba(56,189,248,0.22)" }}
+    className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-60 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(56,189,248,0.3)]"
+    style={{
+      background: "linear-gradient(135deg, #1e3a5f, #1a4a7a)",
+      color: "#e2e8f0",
+      border: "1px solid rgba(56,189,248,0.3)",
+    }}
   >
     {loading && <Loader2 className="w-4 h-4 animate-spin"/>}
     {children}
@@ -168,7 +172,12 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: BG, color: "#f1f5f9" }}>
+    <div className="min-h-screen flex flex-col lg:flex-row relative overflow-hidden" style={{ background: BG, color: "#f1f5f9" }}>
+
+      {/* ── Decorative background orbs ── */}
+      <div className="login-orb" style={{ width: 420, height: 420, background: "hsl(215 80% 55%)", top: "-120px", left: "-100px", animationDelay: "0s" }} />
+      <div className="login-orb" style={{ width: 300, height: 300, background: "hsl(262 60% 55%)", bottom: "60px", right: "30%", animationDelay: "1.5s", animationDuration: "5s" }} />
+      <div className="login-orb" style={{ width: 200, height: 200, background: "hsl(38 90% 52%)", bottom: "-60px", left: "20%", animationDelay: "3s", animationDuration: "4s", opacity: 0.1 }} />
 
       {/* ════════════════════════════════════════════
           LEFT PANEL — hero scanner image  (~45 %)
@@ -179,13 +188,19 @@ const LoginPage = () => {
         {/* Image card with rounded corners */}
         <div
           className="relative w-full h-full rounded-2xl overflow-hidden"
-          style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.07), 0 25px 60px rgba(0,0,0,0.55)" }}
+          style={{ boxShadow: "0 0 0 1px rgba(56,189,248,0.15), 0 25px 60px rgba(0,0,0,0.55), 0 0 40px rgba(56,189,248,0.08)" }}
         >
           {/* Hero photo — fully visible, covers the card */}
           <img
             src={heroScanner}
             alt=""
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-center transition-transform duration-700 hover:scale-105"
+          />
+
+          {/* Animated scan line */}
+          <div
+            className="absolute left-0 right-0 h-[2px] pointer-events-none animate-scan"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(56,189,248,0.6), transparent)", top: "10%" }}
           />
 
           {/* Subtle bottom gradient for text readability only */}
@@ -232,8 +247,8 @@ const LoginPage = () => {
             <img
               src={odsinetLogoBanner}
               alt="ODSINET"
-              className="h-14 sm:h-16 w-auto object-contain"
-              style={{ filter: "drop-shadow(0 0 10px rgba(56,189,248,0.3))" }}
+              className="h-14 sm:h-16 w-auto object-contain animate-float"
+              style={{ filter: "drop-shadow(0 0 16px rgba(56,189,248,0.45))" }}
             />
           </div>
 
@@ -379,7 +394,7 @@ const LoginPage = () => {
             ].map(({ icon, label }) => (
               <button
                 key={label} type="button"
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all hover:bg-white/[0.06] min-w-0"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 hover:bg-white/[0.08] hover:scale-[1.03] hover:border-white/25 min-w-0"
                 style={{
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.12)",
