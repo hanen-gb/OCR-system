@@ -2,24 +2,33 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, FileImage, FileText, Loader2, CheckCircle2,
-  Tag, Hash, Calendar, User, DollarSign, Building2,
+  Tag, Hash, Calendar, User, DollarSign, Building2, CreditCard, Landmark,
   X, Clock, Brain, AlertCircle, AlertTriangle, XCircle, Shield,
   Pencil, Save, RotateCcw, Database, Camera,
   Sparkles, Copy, ChevronDown, ChevronUp, ServerOff,
-  TrendingUp,
+  TrendingUp, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { predictInvoice, analyseDocument, AGENT_API_URL, TARGET_LABELS, type PredictResult, type AgentAnalysisResult } from "@/lib/api";
+import { predictInvoice, analyseDocument, AGENT_API_URL, getAgentToken, TARGET_LABELS, TRAITE_LABELS, type PredictResult, type AgentAnalysisResult } from "@/lib/api";
 import { useChatbot } from "@/contexts/ChatbotContext";
 import { getSession, getHistoryKey } from "@/lib/auth";
 import { useApp } from "@/contexts/AppContext";
 
 const ENTITY_ICONS: Record<string, React.ElementType> = {
+  // Facture
   NUMERO_FACTURE: Hash,
   DATE_FACTURE:   Calendar,
   CLIENT:         User,
   FOURNISSEUR:    Building2,
   MONTANT_TTC:    DollarSign,
+  // Traite (lettre de change)
+  NUMERO_TRAITE:  Hash,
+  DATE_ECHEANCE:  Calendar,
+  TIREUR:         Building2,
+  TIRE:           User,
+  MONTANT:        DollarSign,
+  RIB:            CreditCard,
+  DOMICILIATION:  Landmark,
 };
 
 const usePipelineSteps = (t: (k: string) => string) => [
@@ -96,6 +105,7 @@ function EntityRow({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const { t } = useApp();
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const Icon = ENTITY_ICONS[label] ?? Tag;
@@ -138,7 +148,7 @@ function EntityRow({
           {isModified && (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
               style={{ background: "hsl(38 90% 52% / 0.15)", color: "hsl(38 90% 52%)" }}>
-              corrigé
+              {t("entity_corrected")}
             </span>
           )}
         </div>
@@ -161,7 +171,7 @@ function EntityRow({
           }`}
             style={isModified ? { color: "hsl(38 90% 52%)" } : undefined}
           >
-            {value && value !== "N/A" ? value : "Non détecté"}
+            {value && value !== "N/A" ? value : t("upload_not_detected")}
           </p>
         )}
 
@@ -202,6 +212,7 @@ function EntityRow({
 
 // ── Composant entité lecture seule (affichage GLM brut) ─────────────────────
 function EntityReadOnlyRow({ label, value }: { label: string; value: string }) {
+  const { t } = useApp();
   const Icon = ENTITY_ICONS[label] ?? Tag;
   const found = !!value && value !== "N/A" && value !== "";
   return (
@@ -213,7 +224,7 @@ function EntityReadOnlyRow({ label, value }: { label: string; value: string }) {
       <div className="flex-1 min-w-0">
         <p className="text-[10px] font-mono text-muted-foreground mb-0.5">{label}</p>
         <p className={`text-sm font-medium truncate ${found ? "text-foreground" : "text-muted-foreground/50 italic"}`}>
-          {found ? value : "Non détecté"}
+          {found ? value : t("upload_not_detected")}
         </p>
       </div>
       {found && <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />}
@@ -255,6 +266,7 @@ type AuditCheckData = {
 } | null;
 
 function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }) {
+  const { t } = useApp();
   if (!data) {
     return (
       <div className="rounded-lg p-3" style={{ background: "hsl(var(--muted) / 0.3)", border: "1px solid hsl(var(--border))" }}>
@@ -272,7 +284,7 @@ function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }
     <div className="rounded-lg p-3" style={{ background: bg, border: `1px solid ${border}` }}>
       <p className="text-[10px] font-semibold text-muted-foreground mb-1">{title}</p>
       <p className="text-xs font-bold" style={{ color }}>
-        {isOk ? (data.status === "NOUVEAU" ? "Nouveau" : "✓ OK") : data.status.replace(/_/g, " ")}
+        {isOk ? (data.status === "NOUVEAU" ? t("audit_status_new") : "✓ OK") : data.status.replace(/_/g, " ")}
       </p>
       {data.detail && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{data.detail}</p>}
       {typeof data.ecart === "number" && Math.abs(data.ecart) > 0.001 && (
@@ -287,17 +299,18 @@ function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }
 
 // ── Badge niveau alerte analyste ────────────────────────────────────────────
 function AnalystAlertBadge({ level }: { level: string }) {
-  const cfg: Record<string, { bg: string; text: string; icon: React.ElementType; label: string }> = {
-    NORMAL:    { bg: "hsl(152 60% 40% / 0.1)", text: "hsl(152 60% 40%)", icon: CheckCircle2,  label: "Normal"   },
-    ATTENTION: { bg: "hsl(38 90% 52% / 0.1)",  text: "hsl(38 90% 52%)",  icon: AlertTriangle, label: "Attention" },
-    ALERTE:    { bg: "hsl(0 72% 50% / 0.1)",   text: "hsl(0 72% 50%)",   icon: XCircle,       label: "Alerte"   },
+  const { t } = useApp();
+  const cfg: Record<string, { bg: string; text: string; icon: React.ElementType; labelKey: string }> = {
+    NORMAL:    { bg: "hsl(152 60% 40% / 0.1)", text: "hsl(152 60% 40%)", icon: CheckCircle2,  labelKey: "alert_normal"    },
+    ATTENTION: { bg: "hsl(38 90% 52% / 0.1)",  text: "hsl(38 90% 52%)",  icon: AlertTriangle, labelKey: "alert_attention" },
+    ALERTE:    { bg: "hsl(0 72% 50% / 0.1)",   text: "hsl(0 72% 50%)",   icon: XCircle,       labelKey: "alert_alerte"    },
   };
   const c = cfg[level] ?? cfg.NORMAL;
   const Icon = c.icon;
   return (
     <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
       style={{ background: c.bg, color: c.text, border: `1px solid ${c.text}40` }}>
-      <Icon className="w-3 h-3" /> {c.label}
+      <Icon className="w-3 h-3" /> {t(c.labelKey as Parameters<typeof t>[0])}
     </span>
   );
 }
@@ -319,6 +332,12 @@ const UploadPage = () => {
   const [elapsedMs, setElapsedMs]             = useState(0);
   const [historyId, setHistoryId]             = useState<string>("");
   const [classificationLabel, setClassificationLabel] = useState<string | null>(null);
+  const [classificationConf, setClassificationConf]   = useState<number | null>(null);
+  const [docTypeGlm, setDocTypeGlm]           = useState<"factures" | "traites" | null>(null);
+  const [forcedDocType, setForcedDocType]     = useState<"auto" | "factures" | "traites">("auto");
+
+  // Labels actifs selon le type de document détecté
+  const activeLabels: readonly string[] = docTypeGlm === "traites" ? TRAITE_LABELS : TARGET_LABELS;
 
   // Human-in-the-loop : valeurs éditables + originales
   const [editedMap, setEditedMap]       = useState<Record<string, string>>({});
@@ -332,9 +351,16 @@ const UploadPage = () => {
   const [agentError, setAgentError]     = useState<string | null>(null);
   const [agentExpanded, setAgentExpanded] = useState(true);
   const [agentCopied, setAgentCopied]   = useState(false);
+  const [agentStarted, setAgentStarted] = useState(false);
 
   // Statut du serveur agent (ping /health au chargement de la page)
   const [agentStatus, setAgentStatus]   = useState<"checking" | "online" | "offline">("checking");
+
+  // Zoom modal image
+  const [imageZoomOpen,  setImageZoomOpen]  = useState(false);
+  const [imageZoomLevel, setImageZoomLevel] = useState(1);
+  const openImageZoom  = () => { setImageZoomLevel(1); setImageZoomOpen(true); };
+  const closeImageZoom = () => setImageZoomOpen(false);
 
   const checkAgentHealth = useCallback(async () => {
     setAgentStatus("checking");
@@ -351,6 +377,14 @@ const UploadPage = () => {
   // Ping automatique au chargement de la page
   useEffect(() => { checkAgentHealth(); }, [checkAgentHealth]);
 
+  // Fermer le zoom image avec Échap
+  useEffect(() => {
+    if (!imageZoomOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeImageZoom(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [imageZoomOpen]);
+
   // Mise à jour du contexte chatbot global quand l'analyse est disponible
   useEffect(() => {
     if (agentResult?.status === "ok") {
@@ -359,10 +393,21 @@ const UploadPage = () => {
         audit    : agentResult.audit,
         analyst  : agentResult.analyse,
       });
+      // Si le GLM a échoué (docTypeGlm === null), déterminer le type via l'agent
+      if (docTypeGlm === null) {
+        const agentDocType = agentResult.analyse_contextuelle._document_type as string;
+        if (agentDocType && (agentDocType.includes("traite") || agentDocType.includes("lettre") || agentDocType.includes("change"))) {
+          setDocTypeGlm("traites");
+          const map: Record<string, string> = {};
+          for (const lbl of TRAITE_LABELS) map[lbl] = "";
+          setOriginalMap(map);
+          setEditedMap(map);
+        }
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentResult, setDocContext]);
 
-  const LOCAL_API = "http://localhost:8001";
 
   useEffect(() => {
     return () => { if (imageUrl) URL.revokeObjectURL(imageUrl); };
@@ -382,25 +427,13 @@ const UploadPage = () => {
     // Réinitialise l'état de l'agent pour ce nouveau document
     setAgentResult(null);
     setAgentError(null);
-    setAgentLoading(true);
+    setAgentLoading(false);
+    setAgentStarted(false);
     setAgentExpanded(true);
-
-    // ── Lance l'agent en PARALLÈLE (sans attendre le GLM) ────────────────────
-    analyseDocument(f)
-      .then((res) => {
-        setAgentResult(res);
-        setAgentStatus("online"); // serveur répond = il est en ligne
-      })
-      .catch(() => {
-        // Seulement ici si le serveur est vraiment inaccessible (erreur réseau)
-        setAgentError(t("agent_unavailable"));
-        setAgentStatus("offline");
-      })
-      .finally(() => setAgentLoading(false));
 
     const t0 = Date.now();
     try {
-      const res = await predictInvoice(f, (s) => setPipelineStep(s));
+      const res = await predictInvoice(f, (s) => setPipelineStep(s), forcedDocType);
       const ms = Date.now() - t0;
       setElapsedMs(ms);
       setResult(res);
@@ -408,13 +441,20 @@ const UploadPage = () => {
       // Afficher le résultat de classification sur le step 2
       if (res.doc_type) {
         const label = res.doc_type === "factures" ? t("classify_facture") : t("classify_traite");
-        setClassificationLabel(label);
+        const override = forcedDocType !== "auto" ? " ✎" : "";
+        setClassificationLabel(`${label}${override}`);
+        setClassificationConf(res.classification_confidence ?? null);
       }
 
-      // Initialiser les maps pour l'édition
+      // Détecter le type et choisir les labels appropriés
+      const detectedType: "factures" | "traites" = res.doc_type === "traites" ? "traites" : "factures";
+      setDocTypeGlm(detectedType);
+      const currentLabels: readonly string[] = detectedType === "traites" ? TRAITE_LABELS : TARGET_LABELS;
+
+      // Initialiser les maps pour l'édition (normalise les labels en majuscules)
       const map: Record<string, string> = {};
-      for (const e of res.entities) map[e.label] = e.text;
-      for (const lbl of TARGET_LABELS) if (!map[lbl]) map[lbl] = "";
+      for (const e of res.entities) map[e.label.toUpperCase()] = e.text;
+      for (const lbl of currentLabels) if (!map[lbl]) map[lbl] = "";
       setOriginalMap({ ...map });
       setEditedMap({ ...map });
 
@@ -440,6 +480,7 @@ const UploadPage = () => {
         timing: { inference_ms: 0, total_ms: ms },
       };
       setResult(stubResult);
+      setDocTypeGlm(null); // sera déterminé via agentResult si disponible
       const map: Record<string, string> = {};
       for (const lbl of TARGET_LABELS) map[lbl] = "";
       setOriginalMap({ ...map });
@@ -465,9 +506,9 @@ const UploadPage = () => {
     setStep(0); setProcessing(false);
     setPipelineStep(-1); setError(null); setElapsedMs(0);
     setEditedMap({}); setOriginalMap({}); setSavedCorrections(false);
-    setClassificationLabel(null);
+    setClassificationLabel(null); setClassificationConf(null); setDocTypeGlm(null);
     setAgentResult(null); setAgentLoading(false); setAgentError(null);
-    setAgentCopied(false);
+    setAgentCopied(false); setAgentStarted(false);
     setDocContext({});
   };
 
@@ -480,10 +521,36 @@ const UploadPage = () => {
     (k) => editedMap[k] !== originalMap[k]
   ).length;
 
+  const handleStartAgents = useCallback(() => {
+    if (!file || agentStarted) return;
+    setAgentStarted(true);
+    setAgentLoading(true);
+    setAgentError(null);
+    setAgentExpanded(true);
+
+    const docType = docTypeGlm === "traites" ? "lettre_de_change" : "facture";
+    // Passer les entités éditées comme base_entities → auditeur reçoit MONTANT corrigé
+    const baseEntities: Record<string, string> = {};
+    for (const [k, v] of Object.entries(editedMap)) {
+      if (v && v.trim()) baseEntities[k] = v.trim();
+    }
+
+    analyseDocument(file, docType, baseEntities)
+      .then((res) => {
+        setAgentResult(res);
+        setAgentStatus("online");
+      })
+      .catch(() => {
+        setAgentError(t("agent_unavailable"));
+        setAgentStatus("offline");
+        setAgentStarted(false);
+      })
+      .finally(() => setAgentLoading(false));
+  }, [file, agentStarted, docTypeGlm, editedMap, t]);
+
   const handleSaveCorrections = () => {
     if (!result) return;
-    // Reconstruire les entités avec les valeurs corrigées
-    const updatedEntities = TARGET_LABELS
+    const updatedEntities = activeLabels
       .filter((lbl) => editedMap[lbl] && editedMap[lbl] !== "")
       .map((lbl) => ({ label: lbl, text: editedMap[lbl] }));
     const updatedResult: PredictResult = {
@@ -499,33 +566,28 @@ const UploadPage = () => {
     if (!result) return;
     setDbStatus("saving");
 
-    // Construire le payload final
     const finalEntities: Record<string, string> = {};
-    for (const lbl of TARGET_LABELS) {
+    for (const lbl of activeLabels) {
       const v = editedMap[lbl];
       finalEntities[lbl] = v && v.trim() !== "" ? v.trim() : "N/A";
     }
 
-    const corrections: Record<string, { original: string; corrected: string }> = {};
-    for (const lbl of TARGET_LABELS) {
-      if (editedMap[lbl] !== originalMap[lbl]) {
-        corrections[lbl] = { original: originalMap[lbl] ?? "", corrected: editedMap[lbl] ?? "" };
-      }
-    }
-
     const payload = {
-      filename:    file?.name ?? "inconnu",
-      entities:    finalEntities,
-      corrections: Object.keys(corrections).length > 0 ? corrections : undefined,
-      full_text:   result.full_text,
-      timing:      result.timing,
+      filename:     file?.name ?? "inconnu",
+      entities:     finalEntities,
+      doc_type:     docTypeGlm === "traites" ? "lettre_de_change" : "facture",
+      audit_report: agentResult?.audit ?? {},
     };
 
     try {
-      const res = await fetch(`${LOCAL_API}/factures`, {
+      const token = getAgentToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${AGENT_API_URL}/save`, {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body:    JSON.stringify(payload),
+        signal:  AbortSignal.timeout(10_000),
       });
       if (!res.ok) throw new Error(await res.text());
       setDbStatus("ok");
@@ -540,19 +602,18 @@ const UploadPage = () => {
   const handleExport = () => {
     // Entités finales : toutes les valeurs non vides (N/A inclus → champ traité mais non trouvé)
     const finalEntities: Record<string, string> = {};
-    for (const lbl of TARGET_LABELS) {
+    for (const lbl of activeLabels) {
       const v = editedMap[lbl];
       if (v && v.trim() !== "") {
         finalEntities[lbl] = v.trim();
       } else {
-        // Champ non détecté → N/A explicite pour la BDD
         finalEntities[lbl] = "N/A";
       }
     }
 
     // Diff corrections : uniquement les champs qui ont changé
     const corrections: Record<string, { original: string; corrected: string }> = {};
-    for (const lbl of TARGET_LABELS) {
+    for (const lbl of activeLabels) {
       if (editedMap[lbl] !== originalMap[lbl]) {
         corrections[lbl] = {
           original: originalMap[lbl] ?? "",
@@ -603,9 +664,9 @@ const UploadPage = () => {
 
           {/* Texte statut */}
           <span className="text-xs font-medium">
-            {agentStatus === "online"   && <span style={{ color: "hsl(152 60% 40%)" }}>Agent IA — actif ✓</span>}
-            {agentStatus === "offline"  && <span className="text-muted-foreground">Agent IA — hors ligne</span>}
-            {agentStatus === "checking" && <span className="text-muted-foreground">Agent IA — vérification…</span>}
+            {agentStatus === "online"   && <span style={{ color: "hsl(152 60% 40%)" }}>{t("agent_status_online")}</span>}
+            {agentStatus === "offline"  && <span className="text-muted-foreground">{t("agent_status_offline")}</span>}
+            {agentStatus === "checking" && <span className="text-muted-foreground">{t("agent_status_checking")}</span>}
           </span>
 
           {/* Bouton re-vérifier */}
@@ -776,8 +837,18 @@ const UploadPage = () => {
             {/* Métriques rapides */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: t("upload_metric_entities"), value: `${result.entities.length}/${TARGET_LABELS.length}`, color: "text-primary" },
-                { label: t("upload_metric_type"),     value: classificationLabel ?? "—", color: "text-primary" },
+                { label: t("upload_metric_entities"), value: `${result.entities.length}/${activeLabels.length}`, color: "text-primary" },
+                {
+                  label: t("upload_metric_type"),
+                  value: classificationLabel
+                    ? classificationConf !== null && forcedDocType === "auto"
+                      ? `${classificationLabel} ${Math.round(classificationConf * 100)}%`
+                      : classificationLabel
+                    : "—",
+                  color: classificationConf !== null && classificationConf < 0.70 && forcedDocType === "auto"
+                    ? "text-warning"
+                    : "text-primary",
+                },
                 { label: t("upload_metric_correct"),  value: correctedCount > 0 ? `${correctedCount}` : "—",
                   color: correctedCount > 0 ? "text-warning" : "text-muted-foreground" },
                 { label: t("upload_metric_duration"), value: `${(elapsedMs / 1000).toFixed(1)}s`,
@@ -796,13 +867,24 @@ const UploadPage = () => {
               {/* Image */}
               {imageUrl && (
                 <div className="glass-card rounded-lg p-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                    <FileImage className="w-4 h-4 text-primary" />
-                    {t("upload_image")}
-                  </h3>
-                  <img src={imageUrl} alt="facture analysée"
-                    className="w-full rounded-lg object-contain border border-border"
-                    style={{ maxHeight: 320, background: "hsl(var(--muted))" }} />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <FileImage className="w-4 h-4 text-primary" />
+                      {t("upload_image")}
+                    </h3>
+                    <button
+                      onClick={openImageZoom}
+                      title="Zoom"
+                      className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                      style={{ color: "hsl(var(--muted-foreground))" }}
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <img src={imageUrl} alt="document analysé"
+                    className="w-full rounded-lg object-contain border border-border cursor-zoom-in"
+                    style={{ maxHeight: 320, background: "hsl(var(--muted))" }}
+                    onClick={openImageZoom} />
                 </div>
               )}
 
@@ -813,15 +895,23 @@ const UploadPage = () => {
                     <Tag className="w-4 h-4 text-primary" />
                     {t("upload_entities")}
                   </h3>
-                  <div className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}>
-                    <Pencil className="w-2.5 h-2.5" />
-                    Éditable
+                    <div className="flex items-center gap-1.5">
+                    {docTypeGlm === "traites" && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: "hsl(142 70% 45% / 0.12)", color: "hsl(142 70% 35%)", border: "1px solid hsl(142 70% 45% / 0.3)" }}>
+                        {t("doc_badge_traite")}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}>
+                      <Pencil className="w-2.5 h-2.5" />
+                      {t("entity_editable")}
+                    </div>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  {TARGET_LABELS.map((label) => (
+                  {activeLabels.map((label) => (
                     <EntityRow
                       key={label}
                       label={label}
@@ -834,10 +924,10 @@ const UploadPage = () => {
 
                 <div className="mt-3 flex items-center gap-3 text-[10px] text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <Pencil className="w-2.5 h-2.5" /> Cliquer ✏ pour éditer
+                    <Pencil className="w-2.5 h-2.5" /> {t("entity_click_edit")}
                   </span>
                   <span className="flex items-center gap-1">
-                    <RotateCcw className="w-2.5 h-2.5" /> Rétablir original
+                    <RotateCcw className="w-2.5 h-2.5" /> {t("entity_restore")}
                   </span>
                 </div>
               </div>
@@ -860,6 +950,27 @@ const UploadPage = () => {
                 </div>
               </div>
             </div>
+
+            {/* ── Bouton lancement agents — après correction GLM ── */}
+            {!agentStarted ? (
+              <button
+                onClick={handleStartAgents}
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-lg font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.99]"
+                style={{ background: "hsl(var(--primary))", color: "white" }}
+              >
+                <Sparkles className="w-4 h-4" />
+                {t("start_agents")}
+              </button>
+            ) : agentLoading ? (
+              <div className="flex items-center justify-center gap-2.5 py-3.5 rounded-lg text-sm font-medium"
+                style={{ background: "hsl(262 60% 55% / 0.08)", color: "hsl(262 60% 55%)", border: "1px solid hsl(262 60% 55% / 0.2)" }}>
+                <Loader2 className="w-4 h-4 animate-spin" /> {t("agents_running")}
+              </div>
+            ) : null}
+
+            {/* ── Sections agents — visibles uniquement après lancement ── */}
+            {agentStarted && (
+              <>
             {/* ── Analyse Contextuelle et Complémentaire (Agent LangGraph) ── */}
             <div className="glass-card rounded-lg overflow-hidden">
 
@@ -881,25 +992,25 @@ const UploadPage = () => {
                   {agentLoading && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                       style={{ background: "hsl(262 60% 55% / 0.12)", color: "hsl(262 60% 55%)" }}>
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> En cours
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> {t("agent_in_progress")}
                     </span>
                   )}
                   {!agentLoading && agentResult?.status === "ok" && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/10 text-success">
                       <CheckCircle2 className="w-2.5 h-2.5" />
-                      {Object.keys(agentResult.analyse_contextuelle || {}).filter(k => agentResult.analyse_contextuelle[k] !== null).length} champs
+                      {Object.keys(agentResult.analyse_contextuelle || {}).filter(k => agentResult.analyse_contextuelle[k] !== null).length} {t("agent_fields")}
                     </span>
                   )}
                   {!agentLoading && agentResult?.status === "error" && !agentError && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                       style={{ background: "hsl(0 72% 50% / 0.1)", color: "hsl(0 72% 50%)" }}>
-                      <AlertCircle className="w-2.5 h-2.5" /> Erreur serveur
+                      <AlertCircle className="w-2.5 h-2.5" /> {t("agent_server_error")}
                     </span>
                   )}
                   {!agentLoading && agentError && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                       style={{ background: "hsl(0 72% 50% / 0.1)", color: "hsl(0 72% 50%)" }}>
-                      <ServerOff className="w-2.5 h-2.5" /> Hors ligne
+                      <ServerOff className="w-2.5 h-2.5" /> {t("agent_offline_badge")}
                     </span>
                   )}
                 </div>
@@ -939,7 +1050,7 @@ const UploadPage = () => {
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "hsl(0 72% 50%)" }} />
                       <div>
                         <p className="text-sm font-medium" style={{ color: "hsl(0 72% 50%)" }}>
-                          Erreur lors de l'extraction — vérifier les logs du serveur
+                          {t("agent_extract_error")}
                         </p>
                         {agentResult.error && (
                           <p className="text-[11px] font-mono text-muted-foreground mt-1 break-all">{String(agentResult.error)}</p>
@@ -1000,7 +1111,7 @@ const UploadPage = () => {
                       {/* File type badge */}
                       {agentResult.file_type && (
                         <p className="text-[10px] text-muted-foreground text-right">
-                          fichier détecté : <span className="font-mono">{agentResult.file_type}</span>
+                          {t("agent_file_type_label")} <span className="font-mono">{agentResult.file_type}</span>
                         </p>
                       )}
                     </div>
@@ -1017,13 +1128,15 @@ const UploadPage = () => {
                     <Shield className="w-4 h-4" style={{ color: "hsl(152 60% 40%)" }} />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Rapport d'Audit — Agent 2</p>
-                    <p className="text-[11px] text-muted-foreground">Arithmétique · TVA · Net à payer · Doublon · Gouvernance</p>
+                    <p className="text-sm font-semibold text-foreground">{t("audit_title")}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {docTypeGlm === "traites" ? t("audit_sub_traite") : t("audit_sub_facture")}
+                    </p>
                   </div>
                   {agentLoading && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                       style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}>
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> En cours
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> {t("agent_in_progress")}
                     </span>
                   )}
                   {!agentLoading && agentResult?.audit?.status_validite && (
@@ -1034,43 +1147,96 @@ const UploadPage = () => {
 
               {!agentLoading && agentResult?.audit && (
                 <div className="px-5 pb-5 border-t border-border">
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <AuditCheckCard
-                      title="Arithmétique"
-                      data={agentResult.audit.nb_erreurs_calcul !== undefined ? {
-                        status: agentResult.audit.nb_erreurs_calcul === 0 ? "OK" : "ERREUR",
-                        detail: `${agentResult.audit.nb_articles ?? 0} ligne(s), ${agentResult.audit.nb_erreurs_calcul} erreur(s)`,
-                      } : null}
-                    />
-                    <AuditCheckCard
-                      title="TVA"
-                      data={agentResult.audit.validation_tva_globale
-                        ? { status: agentResult.audit.validation_tva_globale.status, ecart: agentResult.audit.validation_tva_globale.ecart }
-                        : null}
-                    />
-                    <AuditCheckCard
-                      title="Net à payer"
-                      data={agentResult.audit.conformite_net_a_payer
-                        ? { status: agentResult.audit.conformite_net_a_payer.status, ecart: agentResult.audit.conformite_net_a_payer.ecart }
-                        : null}
-                    />
-                    <AuditCheckCard
-                      title="Doublon"
-                      data={agentResult.audit.alerte_doublon
-                        ? { status: agentResult.audit.alerte_doublon.status }
-                        : null}
-                    />
-                    <AuditCheckCard
-                      title="Gouvernance"
-                      data={agentResult.audit.gouvernance
-                        ? { status: agentResult.audit.gouvernance.status, champs_manquants: agentResult.audit.gouvernance.champs_manquants }
-                        : null}
-                    />
-                  </div>
+                  {/* KPIs Traite */}
+                  {docTypeGlm === "traites" ? (
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <AuditCheckCard
+                        title={t("audit_kpi_montant_lettres")}
+                        data={agentResult.audit.check_montant_traite
+                          ? {
+                              status: agentResult.audit.check_montant_traite.status,
+                              detail: agentResult.audit.check_montant_traite.detail,
+                              ecart:  agentResult.audit.check_montant_traite.ecart,
+                            }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_echeance")}
+                        data={agentResult.audit.check_echeance
+                          ? {
+                              status: agentResult.audit.check_echeance.status === "OK"     ? "OK"
+                                    : agentResult.audit.check_echeance.status === "PROCHE"  ? "DOUBLON"
+                                    : agentResult.audit.check_echeance.status === "DEPASSEE"? "ERREUR"
+                                    : "INCOMPLET",
+                              detail: agentResult.audit.check_echeance.detail,
+                            }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_governance")}
+                        data={agentResult.audit.gouvernance
+                          ? { status: agentResult.audit.gouvernance.status, champs_manquants: agentResult.audit.gouvernance.champs_manquants }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_doublon")}
+                        data={agentResult.audit.alerte_doublon
+                          ? { status: agentResult.audit.alerte_doublon.status }
+                          : null}
+                      />
+                    </div>
+                  ) : (
+                    /* KPIs Facture */
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                      <AuditCheckCard
+                        title={t("audit_kpi_arithmetic")}
+                        data={agentResult.audit.nb_erreurs_calcul !== undefined ? {
+                          status: agentResult.audit.nb_erreurs_calcul === 0 ? "OK" : "ERREUR",
+                          detail: `${agentResult.audit.nb_articles ?? 0} ligne(s), ${agentResult.audit.nb_erreurs_calcul} erreur(s)`,
+                        } : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_tva")}
+                        data={agentResult.audit.validation_tva_globale
+                          ? { status: agentResult.audit.validation_tva_globale.status, ecart: agentResult.audit.validation_tva_globale.ecart }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_net")}
+                        data={agentResult.audit.conformite_net_a_payer
+                          ? { status: agentResult.audit.conformite_net_a_payer.status, ecart: agentResult.audit.conformite_net_a_payer.ecart }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_doublon")}
+                        data={agentResult.audit.alerte_doublon
+                          ? { status: agentResult.audit.alerte_doublon.status }
+                          : null}
+                      />
+                      <AuditCheckCard
+                        title={t("audit_kpi_governance")}
+                        data={agentResult.audit.gouvernance
+                          ? { status: agentResult.audit.gouvernance.status, champs_manquants: agentResult.audit.gouvernance.champs_manquants }
+                          : null}
+                      />
+                    </div>
+                  )}
+                  {agentResult.audit.document_incomplet && (
+                    <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium"
+                      style={{ background: "hsl(38 92% 50% / 0.08)", color: "hsl(38 92% 50%)", border: "1px solid hsl(38 92% 50% / 0.3)" }}>
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      {t("audit_incomplete_totals")}
+                    </div>
+                  )}
                   {(agentResult.audit.doc_number || agentResult.audit.fournisseur) && (
                     <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
                       {agentResult.audit.doc_number  && <span>N° <span className="font-mono text-foreground">{agentResult.audit.doc_number}</span></span>}
-                      {agentResult.audit.fournisseur && <span>Fournisseur : <span className="font-medium text-foreground">{agentResult.audit.fournisseur}</span></span>}
+                      {agentResult.audit.fournisseur && (
+                        <span>
+                          {docTypeGlm === "traites" ? t("audit_actor_tireur") : t("audit_actor_fournisseur")} :{" "}
+                          <span className="font-medium text-foreground">{agentResult.audit.fournisseur}</span>
+                        </span>
+                      )}
                       {agentResult.audit.doc_type    && <span>Type : <span className="font-medium text-foreground">{agentResult.audit.doc_type}</span></span>}
                     </div>
                   )}
@@ -1079,13 +1245,13 @@ const UploadPage = () => {
 
               {!agentLoading && !agentResult?.audit && !agentError && agentResult?.status !== "error" && (
                 <div className="px-5 pb-4 border-t border-border">
-                  <p className="text-xs text-muted-foreground mt-3">En attente des résultats de l'agent…</p>
+                  <p className="text-xs text-muted-foreground mt-3">{t("agent_waiting")}</p>
                 </div>
               )}
               {!agentLoading && agentResult?.status === "error" && (
                 <div className="px-5 pb-4 border-t border-border">
                   <p className="text-xs mt-3" style={{ color: "hsl(0 72% 50%)" }}>
-                    Audit non disponible — l'extraction a échoué.
+                    {t("audit_unavailable")}
                   </p>
                 </div>
               )}
@@ -1099,13 +1265,15 @@ const UploadPage = () => {
                     <TrendingUp className="w-4 h-4" style={{ color: "hsl(220 60% 55%)" }} />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Analyse Comportementale — Agent 3</p>
-                    <p className="text-[11px] text-muted-foreground">Historique · Anomalies · Recommandations LLM</p>
+                    <p className="text-sm font-semibold text-foreground">{t("analyst_title")}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {docTypeGlm === "traites" ? t("analyst_sub_traite") : t("analyst_sub_facture")}
+                    </p>
                   </div>
                   {agentLoading && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                       style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}>
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> En cours
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> {t("agent_in_progress")}
                     </span>
                   )}
                   {!agentLoading && agentResult?.analyse?.alert_level && (
@@ -1121,7 +1289,7 @@ const UploadPage = () => {
                   {agentResult.analyse.insights && (
                     <div className="mt-4 p-4 rounded-lg"
                       style={{ background: "hsl(220 60% 55% / 0.05)", border: "1px solid hsl(220 60% 55% / 0.15)" }}>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Analyse LLM</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{t("analyst_llm_title")}</p>
                       <p className="text-sm text-foreground leading-relaxed">{agentResult.analyse.insights}</p>
                     </div>
                   )}
@@ -1132,7 +1300,7 @@ const UploadPage = () => {
                     {/* Anomalies */}
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Anomalies ({agentResult.analyse.nb_anomalies ?? 0})
+                        {t("analyst_anomalies")} ({agentResult.analyse.nb_anomalies ?? 0})
                       </p>
                       {agentResult.analyse.anomalies && agentResult.analyse.anomalies.length > 0 ? (
                         <div className="space-y-2">
@@ -1160,7 +1328,7 @@ const UploadPage = () => {
                         <div className="flex items-center gap-2 p-2 rounded-lg text-[11px] text-muted-foreground"
                           style={{ background: "hsl(152 60% 40% / 0.05)", border: "1px solid hsl(152 60% 40% / 0.15)" }}>
                           <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: "hsl(152 60% 40%)" }} />
-                          Aucune anomalie détectée
+                          {t("analyst_no_anomaly")}
                         </div>
                       )}
                     </div>
@@ -1168,12 +1336,14 @@ const UploadPage = () => {
                     {/* Stats */}
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Statistiques
+                        {t("analyst_stats")}
                       </p>
                       <div className="space-y-2">
                         {agentResult.analyse.stats_fournisseur && (
                           <div className="p-3 rounded-lg" style={{ background: "hsl(var(--muted) / 0.4)", border: "1px solid hsl(var(--border))" }}>
-                            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Fournisseur</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">
+                              {docTypeGlm === "traites" ? t("audit_actor_tireur") : t("audit_actor_fournisseur")}
+                            </p>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                               <span className="font-medium">{agentResult.analyse.stats_fournisseur.nb_documents} doc(s)</span>
                               {agentResult.analyse.stats_fournisseur.montant_moyen != null && (
@@ -1187,10 +1357,10 @@ const UploadPage = () => {
                         )}
                         {agentResult.analyse.stats_globales && (
                           <div className="p-3 rounded-lg" style={{ background: "hsl(var(--muted) / 0.4)", border: "1px solid hsl(var(--border))" }}>
-                            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Base globale</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">{t("analyst_global_base")}</p>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                               <span className="font-medium">{agentResult.analyse.stats_globales.nb_documents_total} document(s)</span>
-                              <span className="text-muted-foreground">{agentResult.analyse.stats_globales.nb_fournisseurs} fournisseur(s)</span>
+                              <span className="text-muted-foreground">{agentResult.analyse.stats_globales.nb_fournisseurs} {t("analyst_suppliers")}</span>
                               {agentResult.analyse.stats_globales.montant_moyen_global != null && (
                                 <span className="text-muted-foreground">moy. {agentResult.analyse.stats_globales.montant_moyen_global.toFixed(3)} DT</span>
                               )}
@@ -1205,13 +1375,13 @@ const UploadPage = () => {
 
               {!agentLoading && !agentResult?.analyse && !agentError && agentResult?.status !== "error" && (
                 <div className="px-5 pb-4 border-t border-border">
-                  <p className="text-xs text-muted-foreground mt-3">En attente des résultats de l'agent…</p>
+                  <p className="text-xs text-muted-foreground mt-3">{t("agent_waiting")}</p>
                 </div>
               )}
               {!agentLoading && agentResult?.status === "error" && (
                 <div className="px-5 pb-4 border-t border-border">
                   <p className="text-xs mt-3" style={{ color: "hsl(0 72% 50%)" }}>
-                    Analyse non disponible — l'extraction a échoué.
+                    {t("analyst_unavailable")}
                   </p>
                 </div>
               )}
@@ -1227,10 +1397,10 @@ const UploadPage = () => {
               >
                 <Save className="w-3.5 h-3.5 mr-1.5" />
                 {savedCorrections
-                  ? "Corrections enregistrées ✓"
+                  ? t("corrections_saved")
                   : correctedCount > 0
-                  ? `Valider ${correctedCount} correction${correctedCount > 1 ? "s" : ""}`
-                  : "Aucune correction"}
+                  ? `${t("corrections_validate")} ${correctedCount} ${t("correction_word")}${correctedCount > 1 ? "s" : ""}`
+                  : t("no_corrections")}
               </Button>
 
               <Button
@@ -1249,20 +1419,90 @@ const UploadPage = () => {
                 ) : (
                   <Database className="w-3.5 h-3.5 mr-1.5" />
                 )}
-                {dbStatus === "saving" ? "Enregistrement…"
-                : dbStatus === "ok"    ? "Enregistré en BDD ✓"
-                : dbStatus === "error" ? "Erreur — API locale hors ligne"
-                : "Enregistrer en BDD"}
+                {dbStatus === "saving" ? t("db_saving")
+                : dbStatus === "ok"    ? t("db_saved")
+                : dbStatus === "error" ? t("db_error")
+                : t("db_save")}
               </Button>
 
               <Button variant="outline" size="sm" onClick={handleExport}>
                 {t("upload_export")}
               </Button>
             </div>
+            </>
+            )}
 
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Modal zoom image ── */}
+      {imageZoomOpen && imageUrl && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.88)" }}
+          onClick={closeImageZoom}
+        >
+          {/* Barre de contrôle */}
+          <div
+            className="flex items-center gap-2 mb-3 px-4 py-2 rounded-xl select-none"
+            style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setImageZoomLevel(l => Math.max(0.25, +(l - 0.25).toFixed(2)))}
+              className="p-1.5 rounded-md text-white hover:bg-white/20 transition-colors"
+              title="Réduire"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-white text-xs font-mono w-10 text-center">
+              {Math.round(imageZoomLevel * 100)}%
+            </span>
+            <button
+              onClick={() => setImageZoomLevel(l => Math.min(6, +(l + 0.25).toFixed(2)))}
+              className="p-1.5 rounded-md text-white hover:bg-white/20 transition-colors"
+              title="Agrandir"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setImageZoomLevel(1)}
+              className="px-2.5 py-1 rounded-md text-white text-[10px] font-semibold hover:bg-white/20 transition-colors"
+              title="Ajuster"
+            >
+              1:1
+            </button>
+            <div className="w-px h-4 mx-1" style={{ background: "rgba(255,255,255,0.25)" }} />
+            <button
+              onClick={closeImageZoom}
+              className="p-1.5 rounded-md text-white hover:bg-white/20 transition-colors"
+              title="Fermer (Échap)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Image scrollable */}
+          <div
+            className="overflow-auto rounded-lg"
+            style={{ maxWidth: "92vw", maxHeight: "82vh" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <img
+              src={imageUrl}
+              alt="document analysé"
+              style={{
+                display: "block",
+                width:    imageZoomLevel === 1 ? "auto" : `${imageZoomLevel * 100}%`,
+                maxWidth: imageZoomLevel === 1 ? "88vw" : "none",
+                maxHeight:imageZoomLevel === 1 ? "78vh" : "none",
+                height:   "auto",
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

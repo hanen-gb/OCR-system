@@ -121,6 +121,46 @@ def _call_llm(prompt: str) -> str:
     )
 
 
+def _sanitize_llm_json(raw: str) -> str:
+    """
+    Échappe les caractères de contrôle bruts insérés par le LLM à l'intérieur
+    des valeurs de chaînes JSON (\\n \\r \\t littéraux qui cassent json.loads).
+
+    Exemple : "notes_manuscrites": "cinq cent\\nquatre vingt..."
+      → le \\n brut n'est pas une séquence d'échappement JSON → JSONDecodeError.
+    Fix : remplace \\n/\\r/\\t par leurs équivalents JSON \\\\n/\\\\r/\\\\t,
+          supprime les autres caractères de contrôle (<0x20, sauf dans les clés
+          structurelles JSON qui sont déjà hors d'une chaîne).
+    """
+    result: list[str] = []
+    in_string = False
+    escape_next = False
+    for ch in raw:
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            result.append(ch)
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string:
+            if ch == "\n":
+                result.append("\\n"); continue
+            if ch == "\r":
+                result.append("\\r"); continue
+            if ch == "\t":
+                result.append("\\t"); continue
+            if ord(ch) < 0x20:          # autres ctrl chars → supprimer
+                continue
+        result.append(ch)
+    return "".join(result)
+
+
 def _repair_truncated_json(text: str) -> str:
     """
     Répare un JSON tronqué (réponse LLM coupée à max_tokens).
@@ -471,13 +511,29 @@ Tu es un LECTEUR, pas un calculateur.
 ❌ Ne calcule jamais, ne déduis jamais, n'invente jamais.
 → Champ absent = null.
 
+━━━ RÈGLE 0bis — DOCUMENTS BILINGUES FR/AR ━━━
+Sur les documents bilingues français/arabe, les deux colonnes disent la MÊME chose.
+→ Lis UNIQUEMENT la version FRANÇAISE pour toutes les valeurs numériques et les champs.
+→ Ne mélange PAS le texte arabe avec le texte français dans un même champ.
+→ Ne copie pas le code-barres, les numéros de série verticaux ou les textes marginaux dans les champs.
+
+━━━ RÈGLE 0ter — NUMERO DE FACTURE ━━━
+Le numéro de facture est TOUJOURS un code alphanumérique compact :
+  Formats valides : "22FV0324", "A/155200", "FT-230600", "1729/900000", "FAC-2024-001"
+  Cherche les libellés : "N° de facture", "Facture N°", "رقم الفاتورة", "Invoice No.", "No."
+  La valeur est sur la MÊME LIGNE ou ligne SUIVANTE du libellé — pas dans le bloc d'adresse.
+  ❌ JAMAIS copier le libellé lui-même ("Facture N°" est le LIBELLÉ, pas la valeur).
+  ❌ JAMAIS une adresse, une ville, un nom de rue ou une entreprise dans ce champ.
+
 ━━━ RÈGLE 1 — FOURNISSEUR vs CLIENT ━━━
-FOURNISSEUR = entité qui a créé ce document → logo/en-tête, RC, IF, RIB, pied de page.
-  Si le logo est illisible → cherche le nom dans le pied de page ou les mentions légales.
-CLIENT = entité destinataire → bloc "Facturé à" / "votre compte" / "Destinataire" / encadré.
-  "N° client", "Code client", "N° abonné", "N° compte" = champs CLIENT uniquement.
+FOURNISSEUR = entité qui a créé ce document → logo/en-tête à GAUCHE, RC, IF, SIRET, RIB, pied de page.
+CLIENT = entité destinataire → bloc encadré (rectangle) souvent à DROITE ou en dessous du header.
+  Marqueurs client : "Facturé à", "Destinataire", "Client :", "Adressé à", "Livré à", "Ship to",
+                     bloc entouré d'une bordure, position droite de l'en-tête.
+  "N° client", "Code client", "N° abonné" = champs CLIENT uniquement.
+⚠️ Sur les factures françaises : le fournisseur est en HAUT À GAUCHE, le client est dans un ENCADRÉ À DROITE.
+⚠️ Si tu vois deux blocs d'adresse distincts → le bloc encadré/à droite = CLIENT.
 ⚠️ Un champ "N° client" ne va jamais dans le bloc fournisseur.
-⚠️ Si fournisseur et client ont la même adresse → l'un des deux est mal identifié.
 
 ━━━ RÈGLE 2 — TABLEAU DES ARTICLES ━━━
 Lis visuellement chaque colonne séparément :
@@ -489,29 +545,81 @@ Lis visuellement chaque colonne séparément :
 ⚠️ Ne recalcule pas total_ht = quantite × prix_unitaire.
 
 ━━━ RÈGLE 3 — SÉPARATEUR DÉCIMAL ━━━
-DEUX conventions coexistent dans les documents du Maghreb :
-CAS A — millimes tunisiens : POINT + EXACTEMENT 3 chiffres = décimales → garder tel quel.
-  33.529 → 33.529 ✅   2.347 → 2.347 ✅   36.476 → 36.476 ✅
-  ❌ JAMAIS convertir 33.529 en 33529 ou 33529.00
+QUATRE conventions coexistent dans les documents du Maghreb :
+CAS A — millimes tunisiens simple : UN seul point + EXACTEMENT 3 chiffres → garder tel quel.
+  33.529 → 33.529 ✅   2.347 → 2.347 ✅   0.600 → 0.600 ✅
+  4.750  → 4.750  ✅  (4 DT 750 millimes — JAMAIS écrire 4750 dans le JSON)
+  2.969  → 2.969  ✅  (2 DT 969 millimes — JAMAIS écrire 2969 dans le JSON)
+  ❌ JAMAIS convertir 33.529 en 33529 ou 4.750 en 4750
+CAS A-ter — ESPACE milliers + POINT millimes :
+  1 109.244  → 1109.244  ✅  (1109 DT 244 millimes — JAMAIS 1109244)
+  2 500.000  → 2500.000  ✅
+  10 250.500 → 10250.500 ✅
+  ❌ JAMAIS supprimer le point décimal quand il y a un espace avant
+CAS A-quater — ESPACE milliers + VIRGULE décimale (IMPORTANT — F6 style) :
+  3 700,000  → 3700.000  ✅  (3700 DT — JAMAIS 3.700 ni 3700000)
+  20 754,000 → 20754.000 ✅  (20754 DT — JAMAIS 20.754)
+  15 760,000 → 15760.000 ✅
+  ⚠️ RÈGLE : espace = séparateur de milliers, virgule = décimal → supprimer espace, remplacer virgule par point
+  ❌ ERREUR CRITIQUE : "20 754,000" ne signifie PAS 20.754 — c'est VINGT MILLE SEPT CENT CINQUANTE-QUATRE DINARS
+CAS A-bis — DOUBLE POINT milliers+millimes (factures professionnelles tunisiennes) :
+  X.XXX.XXX → premier point = séparateur de milliers (supprimer), deuxième = décimal millimes (garder)
+  2.345.000 → 2345.000 ✅  (DEUX MILLE TROIS CENT QUARANTE CINQ — JAMAIS 2.345 !)
+  1.116.000 → 1116.000 ✅   2.110.500 → 2110.500 ✅   3.780.000 → 3780.000 ✅
+  ⚠️ Indice : si Total_HT d'une ligne est ~1000× plus grand que le PU extrait → erreur double point
 CAS B — virgule décimale + point/espace milliers :
   82,775 → 82.775 ✅   1.200,50 → 1200.50 ✅   1 833,33 → 1833.33 ✅
 Dans le JSON : utilise toujours le POINT comme séparateur décimal.
+⚠️ COHÉRENCE : montant_tva doit toujours être < net_a_payer. Si non → erreur de lecture CAS A.
 
 ━━━ RÈGLE 4 — MONTANTS GLOBAUX ━━━
 Identifie chaque ligne par son libellé :
-  "montant_ht"   → "Total HT" / "Total Hors Taxes" / "Base HT" / "المجموع خالي من الأداءات"
+  "montant_ht"   → "Total HT" / "Total Hors Taxes" / "Base HT" / "Montant HT Avant remises" /
+                    "Montant HT" / "المجموع خالي من الأداءات" / "المبلغ بدون أداء قبل الخصم"
+  "montant_ht_ar"→ "Montant HT Après remise" / "Total HT A.R." / "المبلغ بدون أداء بعد الخصم"
+                    (si égal à montant_ht → les deux peuvent valoir la même chose)
   "montant_tva"  → ligne "TVA XX%" uniquement (pas droit de timbre, pas redevances)
   "tva_rate"     → le pourcentage associé à la ligne TVA (19, 20, 7...)
-  "timbre_fiscal"→ "Droit de timbre sur facture" / "Timbre fiscal"
-  "net_a_payer"  → "Net à payer" / "Total TTC" / "Total des charges" / "المبلغ الجملي"
+  "timbre_fiscal"→ "Droit de timbre" / "Droit de timbre sur facture" / "Timbre fiscal" /
+                   "TIMBRE FISCAL LOI..." / "طابع جبائي"
+                   ⚠️ En Tunisie : timbre_fiscal est TOUJOURS une petite valeur (0.600 à 30 DT max).
+                   Si la valeur dépasse 50 DT → ce n'est PAS le timbre, c'est un autre champ → null.
+                   ⚠️ "1.000" = 1 DT (CAS A millimes), JAMAIS 1000.
+  "net_a_payer"  → "Net à payer" / "Total TTC" / "Total des charges" / "Montant de la facture (TTC)" / "المبلغ الجملي"
+
+⚠️ TAXE FODEC (spécificité tunisienne) :
+  Le FODEC (Fonds de Développement de la Compétitivité) est une TAXE de 1%, PAS une remise.
+  Libellés : "FODEC", "Fodec", "Fonds de développement"
+  → "fodec"          : montant de la ligne FODEC
+  → "montant_ht_ar"  : "Total HT A.R." / "Total HT Après Remise" (après déduction de la remise)
+  → "net_htva"       : "NET H.TVA" / "NET HT" (= montant_ht_ar + fodec, base de calcul de la TVA)
+  ❌ Ne jamais mettre le FODEC dans "remise_globale" — c'est une taxe ajoutée, pas une déduction.
 ⚠️ Jamais de calcul : copie la valeur imprimée sur la ligne correspondante.
 
-━━━ RÈGLE 5 — DEVISE ━━━
-Lis depuis le document (jamais de valeur par défaut) :
-  "Dinars" / "DT" / "TND"  → "DT"
-  "Dirhams" / "DH" / "MAD" → "DH"
-  "Euros" / "EUR" / "€"    → "EUR"
-  Non mentionné             → null
+━━━ RÈGLE 5 — DEVISE (PRIORITÉ ABSOLUE) ━━━
+Lis la devise depuis le document — Ne suppose JAMAIS USD ou EUR par défaut.
+  "Dinars" / "DT" / "TND" / "المبلغ بالدينار" / "بالدينار" / "Montant (DT)" → "DT"
+  "Dirhams" / "DH" / "MAD"      → "DH"
+  "Euros" / "EUR" / "€"         → "EUR"
+  Non mentionné                  → null
+⚠️ Si le document contient "Montant (DT)" ou "المبلغ بالدينار" → devise = "DT" OBLIGATOIREMENT.
+   Ne jamais mettre "USD" sur une facture tunisienne qui mentionne explicitement DT.
+
+━━━ RÈGLE 5bis — FACTURES DE SERVICES (télécom, électricité, eau, internet) ━━━
+Ces factures n'ont PAS de tableau d'articles ligne par ligne → articles = []
+Elles ont un RÉCAPITULATIF de lignes nommées — extraire dans les champs globaux :
+  "Total Hors Taxes" / "Montant HT Avant remises" / "Montant HT" / "المجموع (خالي من الأداءات)" → montant_ht
+  "Montant HT Après remise" / "Total HT A.R."            → montant_ht_ar
+  "TVA (X%)"                                              → montant_tva + tva_rate
+  "Droit de timbre sur facture" / "Droit de timbre sur les services" → timbre_fiscal
+  "Total des charges" / "Montant total de la facture (en DT TTC)"    → net_a_payer
+⚠️ NE PAS créer d'articles avec ces lignes — ce sont des champs globaux, pas des produits.
+
+━━━ RÈGLE 5ter — DOCUMENTS BILINGUES FR/AR ━━━
+L'arabe est une TRADUCTION du français — les deux colonnes disent la même chose.
+→ Lis UNIQUEMENT la version FRANÇAISE pour les valeurs numériques.
+→ Ne pas mélanger ou dupliquer le texte arabe dans les champs du JSON.
+→ Sur une facture bilingues FR/AR, le layout gauche=français et droite=arabe (ou inverse).
 
 ━━━ RÈGLE 6 — DÉTECTION TYPE ━━━
 {"facture" if not mode_auto else ""}{"" if not mode_auto else '''Identifie le type :
@@ -590,6 +698,8 @@ def extract_entities_from_image(
     elif "```" in content:
         content = content.split("```")[1].split("```")[0].strip()
 
+    content = _sanitize_llm_json(content)
+
     try:
         parsed = json.loads(content)
         return json.dumps(parsed, ensure_ascii=False, indent=2)
@@ -658,6 +768,7 @@ def extract_visual_fields(image_path: str, document_type: str = "auto") -> str:
       "quantite"        : null,
       "unite"           : "M2 / KG / U / pièce / null",
       "prix_unitaire_ht": null,
+      "remise_pct_ligne": null,
       "tva_rate_ligne"  : "19% / 7% / 13% / null",
       "total_ht_ligne"  : null
     }
@@ -675,11 +786,19 @@ Cherche un tableau avec colonnes : N° | Désignation | QTE | Prix U.HT | TVA% |
 RÈGLE FONDAMENTALE — LIS CHAQUE COLONNE INDÉPENDAMMENT :
   • Identifie d'abord la ligne d'en-tête (noms des colonnes)
   • Pour chaque ligne d'article, lis la valeur de CHAQUE colonne en restant dans sa bande verticale
-  • "quantite"       → colonne QTE / Qté / Quantité  — toujours un nombre ENTIER ou simple (3, 10, 300)
-  • "prix_unitaire"  → colonne P.U.H.T / Prix U.HT / Prix Unitaire — toujours un prix avec décimales
-  • "total_ht"       → colonne Montant HT / Total H.T. par ligne
+  • "quantite"        → colonne QTE / Qté / Quantité — toujours un nombre ENTIER ou simple (3, 10, 300)
+  • "prix_unitaire_ht"→ colonne P.U.H.T / Prix U.HT — UNIQUEMENT si la colonne est explicitement "HT"
+  • "total_ht_ligne"  → colonne Montant HT / Total H.T. — UNIQUEMENT si la colonne est explicitement "HT"
 
-⚠️ PIÈGES VISUELS :
+⚠️ PIÈGE CRITIQUE — COLONNE "PU TTC" OU "PRIX TTC" :
+  Certaines factures (revendeurs, distributeurs) affichent le PRIX TTC dans la colonne prix.
+  Vérifie l'en-tête de la colonne : si elle dit "PU TTC", "Prix TTC", "P.U. TTC" :
+  → prix_unitaire_ht = null   (prix TTC ≠ prix HT)
+  → total_ht_ligne = null     (montant TTC ≠ montant HT)
+  → montant_ht = extraire depuis le bas de la facture ("TOTAL HT" / "Base HT")
+  ❌ JAMAIS mettre un prix TTC dans prix_unitaire_ht ou total_ht_ligne.
+
+⚠️ AUTRES PIÈGES VISUELS :
   - La colonne QTE et la colonne P.U.H.T sont côte à côte → regarde l'en-tête pour identifier laquelle est QTE
   - Un N° série/lot (ex: 200237-2) dans une colonne ≠ quantité — la quantité est dans la colonne étiquetée QTE
   - Si le document est une facture de SERVICES (téléphone, internet, électricité, eau) sans tableau d'articles → articles = []
@@ -803,6 +922,7 @@ JSON :"""
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
 
+        content = _sanitize_llm_json(content)
         parsed = json.loads(content)
         print(f"[VISUAL] Champs visuels détectés : {parsed}")
         return json.dumps(parsed, ensure_ascii=False, indent=2)
@@ -878,15 +998,21 @@ def extract_augmented_entities(
       "quantite"        : null,
       "unite"           : "M2 / KG / U / pièce / etc.",
       "prix_unitaire_ht": null,
+      "remise_pct_ligne": null,
       "tva_rate_ligne"  : "19% / 7% / 13% / exonéré",
       "total_ht_ligne"  : null
     }
   ],
+  "numero_facture"     : "cherche 'N° de facture', 'Facture N°', 'رقم الفاتورة', 'Invoice No.', 'No.' — copie la valeur ALPHANUMÉRIQUE compacte qui SUIT le libellé (ex: 22FV0324, A/155200, FT-230600, 1729/900000). ❌ JAMAIS copier le libellé lui-même ('Facture N°' n'est PAS un numéro). ❌ JAMAIS une adresse, un nom de ville ou de rue.",
   "montant_ht"         : null,
-  "montant_tva"        : null,
-  "tva_rate"           : "taux TVA global du pied de facture (ex: 19%)",
   "remise_globale"     : null,
+  "montant_ht_ar"      : null,
+  "fodec"              : null,
+  "net_htva"           : null,
+  "montant_tva"        : null,
+  "tva_rate"           : "taux TVA global du pied de facture (ex: 19, 20, 7 — jamais de % ni de texte)",
   "timbre_fiscal"      : null,
+  "net_a_payer"        : "valeur NUMÉRIQUE du montant total TTC (Net à payer / Total TTC / TOTAL A PAYER)",
   "net_a_payer_lettres": "COPIE MOT POUR MOT le texte 'en toutes lettres' tel qu'il est écrit dans le document — null si absent. RÈGLE ABSOLUE : garde la devise EXACTE du document (DINARS, DOLLARS, EUROS, DIRHAMS...) sans jamais la changer. NE PAS INVENTER, NE PAS CONVERTIR un nombre en lettres.",
 
   // ── II. VISUEL & SÉCURITÉ ─────────────────────────────────────────────────
@@ -897,7 +1023,7 @@ def extract_augmented_entities(
   "logo_detecte"       : true/false,
 
   // ── III. PAIEMENT & LOGISTIQUE ────────────────────────────────────────────
-  "mode_reglement"              : "Virement / Chèque / Traite / Espèces / Comptant / texte exact",
+  "mode_reglement"              : "UN SEUL mode explicitement indiqué (Virement, Chèque, Traite, Espèces, Comptant). Si le document liste plusieurs modes séparés par '/' ou des puces sans cocher l'un d'eux → null",
   "date_echeance"               : "DD/MM/YYYY",
   "email_fournisseur"           : null,
   "telephone_fournisseur"       : null,
@@ -978,14 +1104,36 @@ TEXTE BRUT EXTRAIT PAR OCR :
 
 {type_instruction}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RÈGLE 0 — LECTURE SEULE (LA PLUS IMPORTANTE)
+RÈGLE 0 — LECTURE SEULE + ANTI-HALLUCINATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Tu es un LECTEUR, pas un calculateur.
-✅ Copie exactement ce qui est écrit.
+✅ Copie exactement ce qui est écrit dans le texte OCR.
 ❌ N'effectue AUCUN calcul (pas de somme, pas de produit, pas de déduction).
-❌ N'invente AUCUNE valeur absente.
+❌ N'invente AUCUNE valeur absente du texte.
 ❌ Ne complète pas un champ par logique ou estimation.
 → Si un champ n'est pas explicitement écrit dans le texte : retourne null.
+
+⚠️ RÈGLE ANTI-HALLUCINATION ARTICLES :
+   Si aucun vrai tableau Désignation/Quantité/Prix n'est visible → articles = []
+   Les notes manuscrites, codes paiement, tampons ne sont JAMAIS des articles.
+   Si la seule ligne "article" a un total = net_a_payer → c'est un résumé global, pas un article → articles = []
+
+⚠️ RÈGLE ANTI-HALLUCINATION ABSOLUE pour les montants globaux :
+   Les champs "net_a_payer", "montant_ht", "montant_tva" ne doivent être remplis
+   QUE si un bloc "Total / Net à payer / Montant TTC" est EXPLICITEMENT présent dans le texte.
+   Si ce bloc est absent (document coupé, page incomplète) → retourne null pour ces 3 champs.
+   Si tu vois un nombre avec des chiffres répétitifs (333333, 111111, 999999...)
+   → c'est une erreur OCR, retourne null.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RÈGLE 6bis — MATRICULE FISCAL (SPÉCIFICITÉ TUNISIENNE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Le matricule fiscal tunisien a ce format exact : XXXXXXXL/L/000
+  Ex: 1234567A/M/000   7654321B/A/000   0123456B/P/000
+Cherche les libellés : "MF:", "M.F:", "Matricule Fiscal:", "Mat. Fisc."
+  → "matricule_fiscal_fournisseur" : MF dans le bloc fournisseur (en-tête/pied de page)
+  → "matricule_fiscal_client"      : MF dans le bloc client
+Pour les factures françaises/européennes : SIRET (14 chiffres), TVA intracommunautaire (FR + 11 chiffres)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 1 — IDENTIFIER FOURNISSEUR vs CLIENT
@@ -993,22 +1141,30 @@ RÈGLE 1 — IDENTIFIER FOURNISSEUR vs CLIENT
 Utilise la SÉMANTIQUE des champs, pas leur position dans la page.
 
 FOURNISSEUR = l'entité qui a créé et signé ce document.
-  Indices universels : logo en haut, en-tête, pied de page, RC/IF/ICE/SIRET, RIB fournisseur.
-  Si l'OCR a mal lu le logo : cherche le nom dans le pied de page ou les mentions légales
-  (ex: "SA au capital de...", "Siège social:", "www.", adresse email @société).
+  Indices universels : logo en HAUT À GAUCHE, en-tête gauche, pied de page, RC/IF/ICE/SIRET, RIB.
+  Si l'OCR a mal lu le logo : cherche le nom dans le pied de page ou les mentions légales.
 
 CLIENT = l'entité à qui est adressé ce document.
   Indices universels : bloc "Facturé à" / "Client :" / "Destinataire" / "votre compte" /
-  "Adressé à" / encadré séparé, ou côté droit/bas de l'en-tête.
+  "Adressé à" / encadré (rectangle avec bordure) / position DROITE ou bas de l'en-tête.
+
+RÈGLE LAYOUT FRANÇAIS (très fréquent) :
+  Sur une facture française standard :
+    → Bloc GAUCHE sans bordure = FOURNISSEUR (émetteur)
+    → Bloc DROIT avec bordure/encadré = CLIENT (destinataire)
+  Si tu vois deux adresses distinctes, la seconde (encadrée ou à droite) = CLIENT.
 
 RÈGLE DE SÉPARATION DES CHAMPS :
-  Les champs suivants appartiennent TOUJOURS au CLIENT, jamais au fournisseur :
+  Les champs suivants appartiennent TOUJOURS au CLIENT :
     "N° client", "Code client", "N° compte client", "N° abonné", "votre N° de contrat"
   Les champs suivants appartiennent TOUJOURS au fournisseur :
-    RC (Registre du Commerce), IF/ICE/SIRET (identifiant fiscal), RIB fournisseur
+    RC, IF, ICE, SIRET (identifiant fiscal), RIB fournisseur, email société, téléphone société
 
-⚠️ Si les deux entités ont des adresses similaires → c'est que l'une d'elles a mal été identifiée.
-⚠️ Ne pas mettre "n_client", "n_facture" ou "code_client" dans le bloc fournisseur.
+⚠️ adresse_client et adresse_fournisseur doivent contenir UNIQUEMENT des adresses postales.
+   ❌ JAMAIS de données d'articles (désignations, codes barres, références produit) dans ces champs.
+   ❌ JAMAIS de coordonnées GPS (ex: 35.794...,10.586...) dans ces champs.
+⚠️ Ne jamais mettre l'adresse du CLIENT dans adresse_fournisseur et vice-versa.
+⚠️ Si les deux adresses sont dans des villes différentes → c'est normal, elles sont distinctes.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 2 — TABLEAU DES ARTICLES
@@ -1031,15 +1187,42 @@ Pour chaque article extrais :
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 3 — SÉPARATEUR DÉCIMAL (TRÈS IMPORTANT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Dans les documents tunisiens, marocains et algériens, DEUX conventions coexistent :
+Dans les documents tunisiens, marocains et algériens, TROIS conventions coexistent :
 
 CAS A — notation en millimes tunisiens (3 décimales avec point) :
-  → POINT suivi d'EXACTEMENT 3 chiffres = décimales en millimes (1 DT = 1000 millimes)
-  → Garde la valeur telle quelle dans le JSON.
-  33.529   → 33.529    ✅  (33 DT et 529 millimes — JAMAIS 33529 ni 33529.00)
-  2.347    → 2.347     ✅  (2 DT et 347 millimes — JAMAIS 2347 ni 2347.00)
-  36.476   → 36.476    ✅  (36 DT et 476 millimes — JAMAIS 36476 ni 36476.00)
-  0.600    → 0.600     ✅  (timbre fiscal — JAMAIS 600)
+  → Un SEUL point + EXACTEMENT 3 chiffres = décimales en millimes → garder tel quel
+  33.529   → 33.529    ✅  (33 DT et 529 millimes)
+  2.347    → 2.347     ✅
+  0.600    → 0.600     ✅  (timbre fiscal)
+  4.750    → 4.750     ✅  (4 DT 750 millimes — JAMAIS 4750)
+  2.969    → 2.969     ✅  (2 DT 969 millimes — JAMAIS 2969)
+  ❌ ERREUR CRITIQUE À ÉVITER : NE JAMAIS lire "4.750" comme "4 750" (quatre mille sept cent cinquante)
+  ❌ ERREUR CRITIQUE À ÉVITER : NE JAMAIS supprimer le point et écrire 4750 ou 2969 dans le JSON
+  → La règle est simple : si le nombre ne dépasse pas logiquement le contexte (TVA < TTC, Timbre < 50 DT), c'est CAS A.
+
+CAS A-ter — ESPACE milliers + POINT millimes (format "1 109.244") :
+  1 109.244  → 1109.244  ✅  (mille cent neuf DT et 244 millimes — JAMAIS 1109244)
+  2 500.000  → 2500.000  ✅
+  10 250.500 → 10250.500 ✅
+  ❌ JAMAIS supprimer le point décimal : "1 109.244" → 1109244 est une ERREUR GRAVE
+
+CAS A-quater — ESPACE milliers + VIRGULE décimale (format "3 700,000") :
+  → Même logique que A-ter mais avec une VIRGULE au lieu d'un point
+  3 700,000  → 3700.000  ✅  (trois mille sept cents DT — JAMAIS 3.700 ni 3700000)
+  20 754,000 → 20754.000 ✅  (vingt mille sept cent cinquante-quatre DT — JAMAIS 20.754)
+  15 760,000 → 15760.000 ✅
+  ❌ ERREUR CRITIQUE : "20 754,000" → 20.754 est FAUX — c'est 20 754 DT, pas vingt dinars !
+  → Règle : supprimer l'espace, remplacer la virgule par un point → écrire l'entier avec millimes
+
+CAS A-bis — DOUBLE POINT : séparateur de milliers + millimes (fréquent sur factures tunisiennes professionnelles) :
+  X.XXX.XXX → le PREMIER point est un séparateur de milliers → le supprimer
+              le DEUXIÈME point + 3 chiffres = millimes → garder
+  2.345.000  → 2345.000  ✅  (deux mille trois cent quarante-cinq DT — JAMAIS 2.345)
+  1.116.000  → 1116.000  ✅  (mille cent seize DT — JAMAIS 1.116)
+  2.110.500  → 2110.500  ✅
+  3.780.000  → 3780.000  ✅
+  ⚠️ RÈGLE CLEF : si tu vois X.XXX.XXX dans une colonne de prix → c'est X milliers, pas X dinars !
+  ⚠️ Vérifie la cohérence : si QTE=1 et PU=2.345 mais Total=2110, alors PU=2345.000 (double point)
 
 CAS B — virgule décimale (2 décimales) + point/espace milliers :
   → VIRGULE "," est le séparateur décimal → convertis en point dans le JSON
@@ -1052,6 +1235,7 @@ CAS B — virgule décimale (2 décimales) + point/espace milliers :
 ⚠️ RÈGLE CLÉ : Un point suivi d'EXACTEMENT 3 chiffres en fin de nombre = millimes → GARDER.
 ⚠️ JAMAIS supprimer ou ignorer les décimales d'un montant.
 ⚠️ Dans le JSON final, utilise TOUJOURS le point comme séparateur décimal.
+⚠️ VÉRIFICATION DE COHÉRENCE : montant_tva doit toujours être < net_a_payer. Si montant_tva > net_a_payer → tu as fait une erreur de lecture → relis CAS A.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 4 — MONTANTS GLOBAUX
@@ -1063,8 +1247,12 @@ Identifie chaque ligne par son LIBELLÉ exact — ne confonds pas les lignes :
   "montant_tva"   → libellé : "TVA", "Montant TVA", "T.V.A", suivi du taux (ex: "TVA 19%")
                                ⚠️ PAS le droit de timbre, PAS les redevances
   "tva_rate"      → cherche "19%", "20%", "7%" associé à la ligne TVA uniquement
-  "timbre_fiscal" → libellé : "Droit de timbre sur facture", "Timbre fiscal"
-                               ⚠️ PAS "Droit de timbre sur téléphonie/internet" (c'est une taxe séparée)
+  "timbre_fiscal" → libellés reconnus : "Droit de timbre", "Droit de timbre sur facture",
+                               "Timbre fiscal", "Timbre", "طابع جبائي",
+                               "TIMBRE FISCAL LOI..." (texte légal long → prendre la valeur numérique associée)
+                               ⚠️ PAS "Droit de timbre sur téléphonie/internet" (taxe séparée)
+                               ⚠️ Valeur max attendue : 30 DT — si > 50 DT → null (confusion avec TTC)
+                               ⚠️ Si la valeur est "1.000" → c'est 1.000 DT (CAS A millimes), JAMAIS 1000
   "net_a_payer"   → libellé : "Net à payer", "Total TTC", "Total des charges", "NET A PAYER",
                                "المبلغ الجملي", "Montant total"
 
@@ -1090,9 +1278,14 @@ RÈGLE 6 — CHAMPS SPÉCIAUX
   "reference_commande"→ cherche "N° Commande", "BC", "Bon de commande" — pas le N° Facture
   "tampon_present"    → true si tu vois "cachet", "tampon", "sceau", ou du texte circulaire/illisible typique d'un tampon
   "signature_presente"→ true si tu vois "signé", "signature", paraphe, ou mention de validation manuscrite
-  "mode_paiement"     → cherche "Comptant", "Virement", "Chèque", "Traite", "Espèces", "Cond. Livraison"
+  "mode_paiement"     → cherche "Comptant", "Virement", "Chèque", "Traite", "Espèces" — UN SEUL mode. Si liste de choix non cochés → null
   "date_echeance"     → c'est la date d'échéance de PAIEMENT, pas la date de facture (champ "Date")
-  "matricule_fiscal_fournisseur" → IF, ICE, SIRET, TVA intracom appartenant au FOURNISSEUR (en-tête)
+  "matricule_fiscal_fournisseur" →
+    Tunisie : MF format XXXXXXXL/L/L/000 (ex: 789012H/MA/000) — libellés : "MF:", "M.F:", "Mat. Fisc."
+    France  : SIRET (14 chiffres, ex: 352 236 244 000 13) ou N° TVA intra (FR + 11 chiffres, ex: FR56352236244)
+              libellés : "N° SIRET", "SIRET", "N° TVA intra", "TVA intracommunautaire"
+    Maroc   : ICE (15 chiffres) — libellés : "ICE:"
+    ⚠️ NE PAS confondre avec RC (Registre du Commerce, format "B XXXXXXXXX" ou "RC:") → RC ≠ MF/SIRET
   "matricule_fiscal_client"      → IF, ICE, SIRET appartenant au CLIENT (bloc client)
 
   "net_a_payer_lettres" → ⚠️ RÈGLE ABSOLUE : copie le texte EXACTEMENT tel qu'il est écrit dans le document.
@@ -1136,6 +1329,8 @@ JSON :"""
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
+
+        content = _sanitize_llm_json(content)
 
         # Tente le parsing direct
         try:

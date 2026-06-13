@@ -1,0 +1,180 @@
+@startuml diagramme_sequence
+skinparam backgroundColor              #F8FAFC
+skinparam ParticipantBackgroundColor   #EEF2FF
+skinparam ParticipantBorderColor       #4F46E5
+skinparam ParticipantFontColor         #1E1B4B
+skinparam ActorBackgroundColor         #DBEAFE
+skinparam ActorBorderColor             #2563EB
+skinparam ActorFontColor               #1E3A5F
+skinparam ArrowColor                   #4F46E5
+skinparam ArrowFontColor               #374151
+skinparam ArrowFontSize                11
+skinparam SequenceLifeLineBorderColor  #94A3B8
+skinparam SequenceGroupBorderColor     #7C3AED
+skinparam SequenceGroupBackgroundColor #F5F3FF
+skinparam SequenceGroupHeaderFontColor #5B21B6
+skinparam SequenceGroupFontSize        12
+skinparam SequenceArrowThickness       2
+skinparam SequenceDividerBackgroundColor #E2E8F0
+skinparam noteBorderColor              #94A3B8
+skinparam noteBackgroundColor          #FFFBEB
+
+' ═══ Acteur (toujours le premier — côté gauche) ═══
+
+actor "Utilisateur" as U
+
+' ═══ Participants ═══
+
+participant "Frontend\n(React / Vite)"  as F
+participant "FastAPI Agents\n(:8002)"   as API
+participant "GLM-OCR\n(Modal GPU T4)"   as G
+participant "Agent 1\nExtracteur"       as A1
+participant "Agent 2\nAuditeur"         as A2
+participant "Agent 3\nAnalyste"         as A3
+participant "Agent 4\nChatbot"          as A4
+participant "SQLite\n(doublons)"        as SQ
+participant "PostgreSQL"                as PG
+participant "Gmail SMTP"                as MAIL
+
+' ════════════════════════════════════════════════
+'  0. AUTHENTIFICATION JWT
+' ════════════════════════════════════════════════
+
+U   ->  F   : Saisit username + password
+F   ->  F   : login() → localStorage\n[session + role]
+F   ->  API : POST /token\n{username, role}
+activate API
+API ->  API : jwt.encode({sub, role}, SECRET, HS256)
+API --> F   : {access_token: "eyJ..."}
+deactivate API
+F   ->  F   : localStorage.setItem\n("odsinet_agent_token", token)
+F   --> U   : Connecté ✓
+
+' ════════════════════════════════════════════════
+'  1. UPLOAD ET OCR PARALLÈLE
+' ════════════════════════════════════════════════
+
+U  ->  F  : Téléverse document (image / PDF)
+activate F
+
+group Parallèle — OCR (Modal) + Extraction contextuelle (Agent 1)
+
+  F  ->>  G  : POST /predict (image)
+  activate G
+  G  ->   G  : MobileNet → classifier doc_type
+  G  ->   G  : GLM fine-tuné → extraction entités
+  G  -->  F  : PredictResult\n{entities, doc_type, full_text}
+  deactivate G
+
+  F  ->>  API : POST /analyse\nAuthorization: Bearer <token>
+  activate API
+  API ->  A1 : extractor_graph.invoke()
+  activate A1
+  A1 ->   A1 : detect_file_type()
+  A1 ->   A1 : extract_text()\n[PDF natif ou Vision]
+  A1 ->   A1 : extract_augmented_entities()
+  A1 ->   A1 : merge_entities()
+  A1 -->  API : complete_entities
+  deactivate A1
+  API -->  F  : complete_entities\n+ owner_username sauvegardé
+  deactivate API
+
+end
+
+' ════════════════════════════════════════════════
+'  2. AFFICHAGE DYNAMIQUE DES ENTITÉS
+' ════════════════════════════════════════════════
+
+F  ->  F  : doc_type = "factures" ?\n→ 5 champs (FOURNISSEUR, CLIENT...)\ndoc_type = "traites" ?\n→ 7 champs (TIREUR, TIRE, RIB...)
+
+F  -->  U  : Interface entités éditables\n+ badge type document
+
+U  ->   F  : Valide ou corrige les entités
+
+' ════════════════════════════════════════════════
+'  3. AUDIT (Agent 2)
+' ════════════════════════════════════════════════
+
+F  ->  A2 : complete_entities + base_entities
+activate A2
+
+A2 ->  A2 : prepare()\n→ résoudre doc_type, doc_number
+A2 ->  A2 : check_arithmetic()\n→ QTE × PU ≈ total_ht
+A2 ->  A2 : check_tva()\n→ Σ TVA lignes ≈ montant_tva
+A2 ->  A2 : check_net_a_payer()\n→ HT + TVA + timbre ≈ net
+A2 ->  SQ : SELECT WHERE doc_number = ?
+SQ --> A2 : résultat doublon
+A2 ->  A2 : check_gouvernance()\n→ signature, cachet
+A2 ->  A2 : verdict() → status_validite
+
+alt Alerte déclenchée (doublon / erreur calcul / montant > seuil)
+  A2 ->   MAIL : send_alert_email()
+  MAIL --> U   : Email d'alerte
+end
+
+A2 -->  F  : AuditReport\n{status_validite, checks, gouvernance}
+deactivate A2
+
+' ════════════════════════════════════════════════
+'  4. ANALYSE COMPORTEMENTALE (Agent 3)
+' ════════════════════════════════════════════════
+
+F  ->  A3 : complete_entities + AuditReport
+activate A3
+A3 ->  PG : Requête historique fournisseur
+PG --> A3 : stats_fournisseur (500 docs max)
+A3 ->  A3 : compute_stats()
+A3 ->  A3 : detect_anomalies()
+A3 ->  A3 : generate_insights() [LLM]
+A3 -->  F : AnalystReport\n{alert_level, anomalies, insights}
+deactivate A3
+
+' ════════════════════════════════════════════════
+'  5. SAUVEGARDE POSTGRESQL
+' ════════════════════════════════════════════════
+
+F   ->  PG : save_document(filename, entities, AuditReport)
+activate PG
+PG  ->  PG : INSERT documents\nINSERT factures / traites
+PG  -->  F : doc_id
+deactivate PG
+
+F   --> U  : Rapport complet\n(entités + audit + analyse)
+
+' ════════════════════════════════════════════════
+'  6. ADMIN — ANNULER UN DOUBLON (optionnel)
+' ════════════════════════════════════════════════
+
+opt Admin annule un doublon
+  U   ->  F   : Clic "Annuler doublon"
+  F   ->  API : DELETE /documents/{type}/{number}\nAuthorization: Bearer <token>
+  activate API
+  API ->  API : verify_token() → payload\nrole != "admin" → 403
+  API ->  SQ  : DELETE WHERE doc_number = ?
+  SQ  --> API : ok
+  API --> F   : {deleted: true}
+  deactivate API
+  F   --> U   : Doublon supprimé
+end
+
+' ════════════════════════════════════════════════
+'  7. CHATBOT CONTEXTUEL (Agent 4) — optionnel
+' ════════════════════════════════════════════════
+
+U   ->  F  : Pose une question
+F   ->  A4 : message + contexte\n{entities, audit, analyst}
+activate A4
+A4  ->  A4 : understand_intent()
+opt intent = "base_donnees"
+  A4 ->  PG : Requête SQL
+  PG --> A4 : résultats
+end
+A4  ->  A4 : generate_response()
+A4  --> F  : Réponse
+deactivate A4
+
+F   --> U  : Réponse contextualisée
+
+deactivate F
+
+@enduml

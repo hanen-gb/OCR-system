@@ -31,8 +31,18 @@ from agents.analyst.checks import (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _is_traite(audit: dict, entities: dict) -> bool:
+    doc_type = audit.get("doc_type") or entities.get("_document_type") or ""
+    return "lettre" in doc_type or "change" in doc_type or "traite" in doc_type
+
+
 def _resolve_fournisseur(audit: dict, entities: dict) -> str | None:
-    f = audit.get("fournisseur") or entities.get("fournisseur")
+    if _is_traite(audit, entities):
+        # Pour une traite, l'acteur principal est le Tireur
+        f = (audit.get("fournisseur") or
+             entities.get("TIREUR") or entities.get("tireur"))
+    else:
+        f = audit.get("fournisseur") or entities.get("fournisseur")
     if isinstance(f, dict):
         f = f.get("nom")
     return str(f).strip() if f else None
@@ -44,6 +54,12 @@ def _resolve_montant(audit: dict, entities: dict) -> float | None:
             v = src.get(k)
             if v is not None:
                 try:
+                    if isinstance(v, str):
+                        v = v.strip().replace(" ", "")
+                        if "," in v and "." not in v:
+                            v = v.replace(",", ".")
+                        elif "," in v and "." in v:
+                            v = v.replace(".", "").replace(",", ".")
                     return float(v)
                 except (TypeError, ValueError):
                     pass
@@ -106,34 +122,73 @@ def generate_insights_node(state: AnalystState) -> dict:
     stats_g   = state.get("stats_globales") or {}
     entities  = state.get("complete_entities") or {}
 
-    fournisseur = _resolve_fournisseur(audit, entities) or "inconnu"
-    doc_number  = audit.get("doc_number", "N/A")
-    doc_type    = audit.get("doc_type", "document")
-    status      = audit.get("status_validite", "—")
-    montant     = _resolve_montant(audit, entities)
+    acteur     = _resolve_fournisseur(audit, entities) or "inconnu"
+    doc_number = audit.get("doc_number", "N/A")
+    doc_type   = audit.get("doc_type", "document")
+    status     = audit.get("status_validite", "—")
+    montant    = _resolve_montant(audit, entities)
+    traite     = _is_traite(audit, entities)
 
-    contexte = (
-        f"Type : {doc_type} | N° : {doc_number} | Fournisseur : {fournisseur}\n"
-        f"Montant TTC : {montant} DT | Statut audit : {status}\n"
-        f"Historique fournisseur : {stats_f.get('nb_documents', 0)} documents, "
-        f"moyenne {stats_f.get('montant_moyen')} DT, total {stats_f.get('montant_total')} DT\n"
-        f"Base globale : {stats_g.get('nb_documents_total', 0)} documents, "
-        f"{stats_g.get('nb_fournisseurs', 0)} fournisseurs\n"
-        f"Anomalies : {json.dumps(anomalies, ensure_ascii=False)}"
-    )
+    if traite:
+        tire          = entities.get("TIRE") or entities.get("tire") or entities.get("nom_adresse_tire") or "inconnu"
+        date_echeance = (audit.get("check_echeance") or {}).get("date", "N/A")
+        domiciliation = entities.get("DOMICILIATION") or entities.get("banque_domiciliataire") or "N/A"
+        etat_ech      = (audit.get("check_echeance") or {}).get("status", "N/A")
 
-    prompt = f"""Tu es un analyste financier spécialisé en documents commerciaux tunisiens.
+        contexte = (
+            f"Type : Lettre de Change | N° : {doc_number}\n"
+            f"Tireur : {acteur} | Tiré : {tire}\n"
+            f"Montant : {montant} DT | Domiciliation : {domiciliation}\n"
+            f"Date d'échéance : {date_echeance} (statut : {etat_ech}) | Statut audit : {status}\n"
+            f"Historique tireur : {stats_f.get('nb_documents', 0)} traites enregistrées, "
+            f"moyenne {stats_f.get('montant_moyen')} DT\n"
+            f"Base globale : {stats_g.get('nb_documents_total', 0)} documents\n"
+            f"Anomalies : {json.dumps(anomalies, ensure_ascii=False)}"
+        )
+        champs_presents = [k for k in ("doc_number", "fournisseur") if audit.get(k) is not None]
+
+        prompt = f"""Tu es un analyste financier spécialisé en effets de commerce tunisiens (lettres de change, billets à ordre).
+Tu réponds UNIQUEMENT en français. Jamais en arabe, anglais, chinois ou autre langue.
+
+Voici le contexte d'une lettre de change traitée par le système OCR multi-agent :
+{contexte}
+
+RÈGLES ABSOLUES :
+1. Les champs suivants sont PRÉSENTS : {champs_presents} → Ne dis JAMAIS qu'ils sont absents.
+2. Commente l'état de l'échéance, le montant, et l'historique du tireur.
+3. Si l'échéance est DEPASSEE, c'est une anomalie critique à signaler.
+4. Si aucune anomalie et statut VALIDÉ → confirme que la traite est conforme.
+5. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement.
+
+Commentaire en français :"""
+    else:
+        contexte = (
+            f"Type : {doc_type} | N° : {doc_number} | Fournisseur : {acteur}\n"
+            f"Montant TTC : {montant} DT | Statut audit : {status}\n"
+            f"Historique fournisseur : {stats_f.get('nb_documents', 0)} documents, "
+            f"moyenne {stats_f.get('montant_moyen')} DT, total {stats_f.get('montant_total')} DT\n"
+            f"Base globale : {stats_g.get('nb_documents_total', 0)} documents, "
+            f"{stats_g.get('nb_fournisseurs', 0)} fournisseurs\n"
+            f"Anomalies : {json.dumps(anomalies, ensure_ascii=False)}"
+        )
+        champs_presents  = [k for k in ("doc_number", "fournisseur", "montant_ttc") if audit.get(k) is not None]
+        champs_presents += ["numero_facture"] if entities.get("numero_facture") else []
+        champs_presents += ["net_a_payer"]    if entities.get("net_a_payer") is not None else []
+
+        prompt = f"""Tu es un analyste financier spécialisé en documents commerciaux tunisiens.
+Tu réponds UNIQUEMENT en français. Jamais en arabe, anglais, chinois ou autre langue.
 
 Voici le contexte d'un document traité par le système OCR multi-agent :
 {contexte}
 
-Rédige un commentaire analytique professionnel en 3-4 phrases maximum :
-- Évalue la conformité du document et l'historique du fournisseur
-- Signale les points d'attention ou alertes détectés
-- Donne une recommandation concrète (valider, investiguer, rejeter)
-- Sois factuel, concis, sans répéter les chiffres déjà affichés
+RÈGLES ABSOLUES avant de rédiger :
+1. Les champs suivants sont PRÉSENTS dans le JSON : {champs_presents}
+   → Ne dis JAMAIS qu'ils sont absents ou manquants.
+2. Commente UNIQUEMENT les anomalies listées et l'historique fournisseur.
+3. Si aucune anomalie n'est détectée et que le statut est VALIDÉ → dis simplement que le document est conforme.
+4. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement, sans inventer d'informations.
 
-Commentaire :"""
+Commentaire en français :"""
 
     try:
         from agents.extractor.tools import _call_llm

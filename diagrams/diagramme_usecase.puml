@@ -1,0 +1,176 @@
+@startuml diagramme_usecase
+left to right direction
+
+skinparam backgroundColor         #F8FAFC
+skinparam actorStyle               awesome
+skinparam ArrowColor               #4F46E5
+skinparam ArrowFontColor           #374151
+skinparam ArrowFontSize            11
+skinparam rectangleBackgroundColor #F8FAFC
+skinparam rectangleBorderColor     #CBD5E1
+skinparam rectangleBorderThickness 1
+skinparam noteBorderColor          #94A3B8
+skinparam noteBackgroundColor      #FFFBEB
+
+' ── Acteurs ──────────────────────────────────────────────────────────────────
+
+skinparam actor<<user>> {
+  BackgroundColor #DBEAFE
+  BorderColor     #2563EB
+  FontColor       #1E3A5F
+  FontSize        13
+}
+
+skinparam actor<<admin>> {
+  BackgroundColor #FEE2E2
+  BorderColor     #DC2626
+  FontColor       #7F1D1D
+  FontSize        13
+}
+
+actor "Utilisateur\n(role: \"user\")"     <<user>>  as U
+actor "Administrateur\n(role: \"admin\")" <<admin>> as A
+
+' Admin hérite de TOUTES les fonctions Utilisateur
+U <|-- A : hérite
+
+' ── Use cases communs : style user ───────────────────────────────────────────
+
+skinparam usecase {
+  BackgroundColor #EEF2FF
+  BorderColor     #4F46E5
+  FontColor       #1E1B4B
+  FontSize        11
+}
+
+' ── Use cases admin-only : style admin ───────────────────────────────────────
+
+skinparam usecase<<admin>> {
+  BackgroundColor #FEE2E2
+  BorderColor     #DC2626
+  FontColor       #7F1D1D
+  FontSize        11
+}
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  RECTANGLE 1 — FONCTIONS COMMUNES (Utilisateur & Administrateur)
+' ═══════════════════════════════════════════════════════════════════════════
+
+rectangle "Fonctions accessibles à tous les comptes" #EEF2FF {
+
+  rectangle "— Traitement document —" #ECFDF5 {
+    usecase "Téléverser un document\n(image / PDF)"         as UC1
+    usecase "Classifier\n(Facture / Lettre de change)"      as UC2
+    usecase "Extraire les entités\n(GLM-OCR LoRA)"          as UC3
+  }
+
+  rectangle "— Pipeline agentique —" #EEF2FF {
+    usecase "Analyser le contexte\n(Agent 1 — Extracteur)"  as UC4
+    usecase "Auditer le document\n(Agent 2 — Auditeur)"     as UC5
+    usecase "Détecter les anomalies\n(Agent 3 — Analyste)"  as UC6
+  }
+
+  rectangle "— Interaction utilisateur —" #EEF2FF {
+    usecase "Corriger les entités\n(Human-in-the-loop)"     as UC7
+    usecase "Re-auditer après correction"                   as UC8
+    usecase "Interagir avec le chatbot\n(Agent 4 contextuel)" as UC9
+  }
+
+  rectangle "— Consultation & export —" #F5F3FF {
+    usecase "Dashboard KPIs\n(analytics temps réel)"        as UC10
+    usecase "Historique docs\n(isolé par utilisateur)"      as UC11
+    usecase "Calendrier des échéances"                      as UC12
+    usecase "Exporter résultat JSON"                        as UC13
+    usecase "Rapport d'audit\n(verdict + checks)"           as UC14
+    usecase "Profil utilisateur\n(photo, mdp, bio)"         as UC15
+    usecase "Apparence / Langue"                            as UC16
+  }
+}
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  RECTANGLE 2 — ADMINISTRATION UNIQUEMENT (SettingsPage)
+' ═══════════════════════════════════════════════════════════════════════════
+
+rectangle "Admin uniquement — SettingsPage (role: \"admin\")" #FEF2F2 {
+  usecase "Lister tous les utilisateurs\n(getAllUsers())"    <<admin>> as UC17
+  usecase "Supprimer un utilisateur\n(sauf admin + hanen)"  <<admin>> as UC18
+  usecase "Voir rôles & badges\n(badge \"protégé\")"        <<admin>> as UC19
+  usecase "Accès /documents\n(SQLite doublons)"             <<admin>> as UC20
+  usecase "Annuler un doublon\n(DELETE /documents)"         <<admin>> as UC21
+  usecase "Configurer le système\n(thème, langue, users)"   <<admin>> as UC22
+}
+
+' ── Alerte email (hors rectangles — déclenchée par l'audit) ─────────────────
+
+usecase "Recevoir alerte email\n(Gmail SMTP)" as UC_ALERT
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  ASSOCIATIONS — Utilisateur → UCs communs
+' ═══════════════════════════════════════════════════════════════════════════
+
+U --> UC1
+U --> UC7
+U --> UC9
+U --> UC10
+U --> UC11
+U --> UC12
+U --> UC13
+U --> UC14
+U --> UC15
+U --> UC16
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  ASSOCIATIONS — Administrateur → UCs admin-only
+'  (l'héritage U <|-- A couvre implicitement toutes les UCs de U)
+' ═══════════════════════════════════════════════════════════════════════════
+
+A --> UC17
+A --> UC18
+A --> UC19
+A --> UC20
+A --> UC21
+A --> UC22
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  RELATIONS ENTRE USE CASES
+' ═══════════════════════════════════════════════════════════════════════════
+
+UC1  ..> UC2       : <<include>>
+UC2  ..> UC3       : <<include>>
+UC3  ..> UC4       : <<include>>
+UC4  ..> UC5       : <<include>>
+UC5  ..> UC6       : <<include>>
+UC5  ..> UC_ALERT  : <<extend>>
+UC7  ..> UC8       : <<extend>>
+
+' ═══════════════════════════════════════════════════════════════════════════
+'  NOTES EXPLICATIVES
+' ═══════════════════════════════════════════════════════════════════════════
+
+note right of UC3
+  2 modèles fine-tunés sur HuggingFace :
+  • Goubaa/glmocr-factures  (5 entités)
+  • Goubaa/glm-traite-tunis (7 entités)
+  Classificateur : MobileNet
+end note
+
+note right of UC5
+  Checks Agent 2 :
+  arithmétique, TVA,
+  net à payer, doublon,
+  gouvernance
+end note
+
+note bottom of A
+  <b>Authentification JWT (implémentée)</b>
+  1. Login localStorage → appel <b>POST /token</b>
+  2. FastAPI retourne JWT signé (HS256)
+  3. Token stocké dans <b>localStorage</b>
+  4. Chaque requête : <b>Authorization: Bearer &lt;token&gt;</b>
+  5. DELETE /documents → <b>Depends(verify_token)</b>
+     → HTTPException 403 si role != "admin"
+  PostgreSQL : 1 seul compte <b>odsinet_backend</b>
+  Table documents : colonne <b>owner_username</b>
+end note
+
+@enduml

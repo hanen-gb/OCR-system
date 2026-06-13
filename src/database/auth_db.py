@@ -89,11 +89,23 @@ class AuthManager:
             """)
             conn.commit()
 
-        # Créer le compte admin par défaut si la table est vide
-        if not self.list_users():
+        # Créer les comptes par défaut s'ils n'existent pas encore
+        existing = {u["username"] for u in self.list_users()}
+
+        if "admin" not in existing:
             self.create_user(
                 username="admin",
                 display_name="Administrateur",
+                email="admin@example.com",
+                password="REDACTED",
+                role="admin",
+                email_verified=True,
+            )
+
+        if "hanengb" not in existing:
+            self.create_user(
+                username="hanengb",
+                display_name="Hanen GB",
                 email="admin@example.com",
                 password="REDACTED",
                 role="admin",

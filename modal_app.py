@@ -48,7 +48,8 @@ app = modal.App("glmocr-backend", image=image)
 model_cache = modal.Volume.from_name("glmocr-model-cache", create_if_missing=True)
 
 HF_MODEL_REPO      = "Goubaa/glmocr-factures"
-HF_CLASSIFIER_REPO = "Goubaa/mobilenet-classifier"   # classificateur facture/traite
+HF_TRAITE_REPO     = "Goubaa/glm-traite-tunis"
+HF_CLASSIFIER_REPO = "Goubaa/mobilenet-classifier"
 CACHE_PATH         = "/model_cache"
 
 ENTITIES = ["CLIENT", "FOURNISSEUR", "DATE_FACTURE", "MONTANT_TTC", "NUMERO_FACTURE"]
@@ -63,6 +64,61 @@ PROMPT = (
     "Reponds UNIQUEMENT avec un objet JSON valide.\n"
     "Si une information est absente, mettre N/A."
 )
+
+ENTITIES_TRAITE = [
+    "numero_traite", "date_echeance", "montant",
+    "tireur", "tire", "rib", "domiciliation",
+]
+
+PROMPT_TRAITE = """Tu es un expert OCR spécialisé dans les lettres de change tunisiennes (كمبيالة).
+Analyse l'image et extrais les 7 champs suivants en te guidant par leur POSITION sur le document :
+
+1. numero_traite
+   → Coin HAUT DROIT du document, après "Ordre de paiement L-CN" ou "أمر بدفع الكمبيالة عدد"
+   → Suite de chiffres (10-12 chiffres), aussi visible dans le code-barres en BAS
+   → Exemple : 012345678901
+
+2. date_echeance
+   → Zone HAUT GAUCHE, champ "Echéance / حلول الأجل"
+   → C'est la date FUTURE (pas la date de création)
+   → Format JJ/MM/AAAA
+   → Exemple : 15/09/2026
+
+3. montant
+   → Zone HAUT DROIT, champ "Montant / البلغ"
+   → Valeur numérique avec point ou virgule décimale
+   → Ignorer "Montant en lettres"
+   → Exemple : 2000.000
+
+4. tireur
+   → Zone MILIEU GAUCHE, champ "Tireur / الساحب"
+   → Nom de la société ou personne qui émet la traite
+   → Souvent en MAJUSCULES ou tampon
+   → Exemple : SOCIETE EXEMPLE SARL
+
+5. tire
+   → Zone BAS CENTRE, champ "Nom et adresse du Tiré / اسم وعنوان المسحوب عليه"
+   → Prendre UNIQUEMENT la première ligne (nom/société), ignorer l'adresse
+   → Exemple : SOCIETE CLIENTE
+
+6. rib
+   → Zone MILIEU, champ "RIB ou RIP du Tiré / المعرف البنكي"
+   → Code étab + Code Agence + N° Compte + Clé, sans espaces, chiffres uniquement
+   → Exemple : 01234567890123456789
+
+7. domiciliation
+   → Zone BAS DROIT, champ "Domiciliation / اسم وعنوان الفرع المسحوب عليه"
+   → Nom de la banque uniquement (BIAT, BNA, STB, Attijari, UIB, BTK...)
+   → Exemple : BIAT
+
+RÈGLES STRICTES :
+- Répondre UNIQUEMENT avec un objet JSON valide, aucun texte avant ou après
+- Si un champ est illisible → "illisible"
+- Si un champ est absent → "N/A"
+- Pour le RIB : chiffres uniquement, ignorer les lettres parasites
+
+FORMAT :
+{"numero_traite": "...", "date_echeance": "...", "montant": "...", "tireur": "...", "tire": "...", "rib": "...", "domiciliation": "..."}"""
 
 
 # ── Classificateur (CPU — MobileNet léger) ───────────────────────────────────
@@ -265,11 +321,129 @@ class Model:
         }
 
 
+# ── Classe GLM Lettre de change (GPU T4) ─────────────────────────────────────
+@app.cls(
+    gpu="T4",
+    scaledown_window=600,
+    timeout=300,
+    volumes={CACHE_PATH: model_cache},
+)
+class ModelTraite:
+
+    @modal.enter()
+    def load(self):
+        import os, torch, traceback
+        from transformers import AutoProcessor, AutoModelForImageTextToText
+
+        os.environ["TRANSFORMERS_CACHE"] = CACHE_PATH
+        os.environ["HF_HOME"]            = CACHE_PATH
+
+        print(f"=== DEBUT CHARGEMENT {HF_TRAITE_REPO} ===")
+        import time; t0 = time.time()
+
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                HF_TRAITE_REPO,
+                use_fast=False,
+                trust_remote_code=True,
+                cache_dir=CACHE_PATH,
+            )
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                HF_TRAITE_REPO,
+                dtype=torch.float16,
+                device_map="auto",
+                trust_remote_code=True,
+                cache_dir=CACHE_PATH,
+            )
+            self.model.eval()
+            print(f"=== MODELE TRAITE PRET EN {time.time()-t0:.1f}s ===")
+        except Exception as e:
+            print(f"=== ERREUR CHARGEMENT TRAITE : {type(e).__name__}: {e} ===")
+            traceback.print_exc()
+            raise
+
+    @modal.method()
+    def predict(self, image_bytes: bytes) -> dict:
+        import gc, io, json, re, time, torch
+        from PIL import Image
+
+        t0    = time.time()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h  = image.size
+        if max(w, h) > 1024:
+            scale = 1024 / max(w, h)
+            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image},
+                {"type": "text",  "text":  PROMPT_TRAITE},
+            ],
+        }]
+
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+            processor_kwargs={"return_mm_token_type_ids": True},
+        )
+        inputs = {
+            k: v.to("cuda") if isinstance(v, torch.Tensor) else v
+            for k, v in inputs.items()
+        }
+        inputs.pop("token_type_ids", None)
+
+        with torch.inference_mode():
+            output_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
+            )
+
+        input_len = inputs["input_ids"].shape[1]
+        raw_text  = self.processor.decode(
+            output_ids[0][input_len:], skip_special_tokens=True
+        ).strip()
+
+        print(f"GLM Traite raw output: {raw_text[:200]}")
+
+        parsed = {}
+        match  = re.search(r'\{[^{}]*\}', raw_text, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+            except json.JSONDecodeError:
+                parsed = {e: "N/A" for e in ENTITIES_TRAITE}
+        else:
+            parsed = {e: "N/A" for e in ENTITIES_TRAITE}
+
+        entities = [
+            {"label": label, "text": str(parsed.get(label, "N/A")), "box": None, "words": []}
+            for label in ENTITIES_TRAITE
+            if parsed.get(label) and parsed.get(label) != "N/A"
+        ]
+
+        ms = int((time.time() - t0) * 1000)
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        return {
+            "entities":  entities,
+            "full_text": raw_text,
+            "timing":    {"inference_ms": ms, "total_ms": ms},
+        }
+
+
 # ── FastAPI wrapper ───────────────────────────────────────────────────────────
 @app.function()
 @modal.asgi_app()
 def fastapi_app():
-    from fastapi import FastAPI, File, UploadFile, HTTPException
+    from fastapi import FastAPI, File, Form, UploadFile, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from pathlib import Path
@@ -291,7 +465,10 @@ def fastapi_app():
         return {"labels": ENTITIES, "count": len(ENTITIES)}
 
     @web_app.post("/predict")
-    async def predict(file: UploadFile = File(...)):
+    async def predict(
+        file          : UploadFile = File(...),
+        document_type : str        = Form(default="auto"),  # "auto" | "factures" | "traites"
+    ):
         ext = Path(file.filename or "img.jpg").suffix.lower()
         if ext not in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}:
             raise HTTPException(400, f"Format non supporte : {ext}")
@@ -299,23 +476,25 @@ def fastapi_app():
         image_bytes = await file.read()
 
         try:
-            # ── Étape 1 : classification du type de document ─────────────────
-            classification = await Classifier().classify.remote.aio(image_bytes)
-            doc_type       = classification["doc_type"]        # "facture" | "traite"
-            confidence     = classification["confidence"]
+            # ── Étape 1 : classification (sauf si override manuel) ────────────
+            if document_type in ("factures", "traites"):
+                # Override manuel : bypass le classifieur
+                doc_type   = document_type
+                confidence = 1.0
+                print(f"[PREDICT] Override manuel : {doc_type}")
+            else:
+                classification = await Classifier().classify.remote.aio(image_bytes)
+                doc_type       = classification["doc_type"]
+                confidence     = classification["confidence"]
+                print(f"[PREDICT] Classifieur : {doc_type} (conf={confidence:.2f})")
 
             # ── Étape 2 : routage vers le bon modèle ─────────────────────────
             if doc_type == "factures":
                 result = await Model().predict.remote.aio(image_bytes)
             else:
-                # GLM Traites non encore déployé — stub temporaire
-                result = {
-                    "entities":  [],
-                    "full_text": "",
-                    "timing":    {"inference_ms": 0, "total_ms": 0},
-                }
+                result = await ModelTraite().predict.remote.aio(image_bytes)
 
-            result["doc_type"]              = doc_type
+            result["doc_type"]                  = doc_type
             result["classification_confidence"] = confidence
 
         except Exception as e:

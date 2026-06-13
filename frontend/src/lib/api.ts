@@ -92,12 +92,16 @@ export async function checkHealth(): Promise<HealthResult> {
 export async function predictInvoice(
   file: File,
   onProgress?: (step: number) => void,
+  documentType: "auto" | "factures" | "traites" = "auto",
 ): Promise<PredictResult> {
   // Redimensionne avant envoi : photo caméra 8MB → ~200KB
   const resized = await resizeImage(file);
 
   const formData = new FormData();
   formData.append("file", resized);
+  if (documentType !== "auto") {
+    formData.append("document_type", documentType);
+  }
 
   // Wake Lock : empêche l'écran mobile de s'éteindre pendant l'analyse
   let wakeLock: WakeLockSentinel | null = null;
@@ -146,8 +150,18 @@ export const TARGET_LABELS = [
   "DATE_FACTURE",
   "MONTANT_TTC",
 ] as const;
-
 export type TargetLabel = (typeof TARGET_LABELS)[number];
+
+export const TRAITE_LABELS = [
+  "NUMERO_TRAITE",
+  "DATE_ECHEANCE",
+  "TIREUR",
+  "TIRE",
+  "MONTANT",
+  "RIB",
+  "DOMICILIATION",
+] as const;
+export type TraiteLabel = (typeof TRAITE_LABELS)[number];
 
 // ── Agent Extracteur — Analyse Contextuelle et Complémentaire ─────────────────
 
@@ -155,11 +169,81 @@ export type TargetLabel = (typeof TARGET_LABELS)[number];
 export const AGENT_API_URL =
   import.meta.env.VITE_AGENT_URL || "http://localhost:8002";
 
+// ── Gestion du token JWT (émis par POST /token de FastAPI) ───────────────────
+
+const TOKEN_KEY = "odsinet_agent_token";
+
+export function getAgentToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function setAgentToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAgentToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+/**
+ * Appelle POST /token sur FastAPI et stocke le JWT dans localStorage.
+ * À appeler une fois après un login réussi.
+ * Silencieux si le serveur agent est hors ligne.
+ */
+export async function fetchToken(username: string, role: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${AGENT_API_URL}/token`, {
+      method : "POST",
+      headers: { "Content-Type": "application/json" },
+      body   : JSON.stringify({ username, role }),
+      signal : AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.access_token) { setAgentToken(data.access_token); return true; }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Supprime un document de la base SQLite (annule un doublon).
+ * Lève une erreur si le token est absent ou si le rôle n'est pas admin.
+ */
+export async function deleteDocument(docType: string, docNumber: string): Promise<boolean> {
+  const token = getAgentToken();
+  if (!token) throw new Error("Token JWT absent — veuillez vous reconnecter");
+  const res = await fetch(`${AGENT_API_URL}/documents/${docType}/${docNumber}`, {
+    method : "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 403) throw new Error("Accès refusé — rôle admin requis");
+  if (res.status === 401) throw new Error("Token expiré — veuillez vous reconnecter");
+  return res.ok;
+}
+
 export interface AuditReport {
   status_validite: string;
   doc_type?: string;
   doc_number?: string;
   fournisseur?: string;
+  // Traite-specific
+  check_montant_traite?: {
+    status: string;
+    valeur_lettres?: number;
+    valeur_chiffres?: number;
+    ecart?: number;
+    detail?: string;
+  };
+  check_echeance?: {
+    status: string;
+    date?: string;
+    jours_restants?: number;
+    jours_depassement?: number;
+    detail?: string;
+  };
+  // Facture-specific
   nb_articles?: number;
   nb_erreurs_calcul?: number;
   nb_lignes_incompletes?: number;
@@ -291,17 +375,26 @@ export async function sendChatMessage(
 export async function analyseDocument(
   file: File,
   documentType = "auto",
+  baseEntities?: Record<string, string>,
 ): Promise<AgentAnalysisResult> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("document_type", documentType);
+  if (baseEntities && Object.keys(baseEntities).length > 0) {
+    formData.append("base_entities", JSON.stringify(baseEntities));
+  }
 
   const { signal, clear } = makeTimeoutSignal(180_000); // 3 min max
 
+  const agentHeaders: HeadersInit = {};
+  const token = getAgentToken();
+  if (token) agentHeaders["Authorization"] = `Bearer ${token}`;
+
   try {
     const res = await fetch(`${AGENT_API_URL}/analyse`, {
-      method: "POST",
-      body: formData,
+      method : "POST",
+      body   : formData,
+      headers: agentHeaders,
       signal,
     });
     clear();

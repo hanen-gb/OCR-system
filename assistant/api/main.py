@@ -19,14 +19,20 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
+from typing import Optional
 
 # Permet d'importer state.py et agents/ depuis le dossier assistant/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from jose import jwt, JWTError
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+JWT_SECRET    = os.getenv("JWT_SECRET", "change-me")
+JWT_ALGORITHM = "HS256"
 
 from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
 
@@ -35,6 +41,7 @@ from agents.auditor   import auditor_graph
 from agents.analyst   import analyst_graph
 from agents.chatbot   import chatbot_graph
 from agents.auditor.db import list_documents, delete_document
+from database import init_db, save_document, get_documents_pg, get_facture, get_traite
 
 app = FastAPI(
     title="Agents OCR — Pipeline Multi-Agent",
@@ -49,6 +56,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialise les tables PostgreSQL au démarrage (silencieux si DATABASE_URL absent)
+init_db()
+
+
+# ── Auth JWT ──────────────────────────────────────────────────────────────────
+
+class TokenRequest(BaseModel):
+    username: str
+    role: str
+
+
+def verify_token(authorization: str = Header(None)) -> dict:
+    """Dépendance FastAPI — valide le Bearer JWT et retourne le payload."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token JWT manquant (Authorization: Bearer <token>)")
+    try:
+        payload = jwt.decode(authorization[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token JWT invalide ou expiré")
+
+
+def _owner_from_token(authorization: Optional[str]) -> str:
+    """Extrait le username depuis un token optionnel — retourne 'anonymous' si absent/invalide."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return "anonymous"
+    try:
+        payload = jwt.decode(authorization[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload.get("sub", "anonymous")
+    except JWTError:
+        return "anonymous"
+
+
+@app.post("/token")
+async def create_token(req: TokenRequest):
+    """
+    Retourne un JWT signé pour le frontend.
+    Appelé une fois après login localStorage — stocké côté client.
+    """
+    payload = {"sub": req.username, "role": req.role}
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
+
 
 @app.get("/health")
 async def health():
@@ -62,6 +112,7 @@ async def analyse_document(
     file          : UploadFile = File(...),
     document_type : str        = Form(default="auto"),
     base_entities : str        = Form(default="{}"),   # JSON string du GLM (optionnel)
+    authorization : Optional[str] = Header(default=None),  # JWT optionnel pour owner_username
 ):
     """
     Pipeline complet : Agent 1 (Extraction) → Agent 2 (Audit).
@@ -137,6 +188,17 @@ async def analyse_document(
         except Exception as e_audit:
             traceback.print_exc()
             rapport_audit = {"status_validite": "ERREUR_AUDIT", "detail": str(e_audit)}
+
+        # ── PostgreSQL : sauvegarde résultats Agents 1 + 2 ──────────────────
+        try:
+            save_document(
+                filename       = file.filename or "unknown",
+                entities       = analyse,
+                audit_report   = rapport_audit,
+                owner_username = _owner_from_token(authorization),
+            )
+        except Exception as e_db:
+            print(f"[API] PostgreSQL save ignoré : {e_db}")
 
         # ── Agent 3 : Analyse comportementale ────────────────────────────────
         try:
@@ -280,7 +342,86 @@ async def get_documents(limit: int = 50):
 
 
 @app.delete("/documents/{doc_type}/{doc_number}")
-async def remove_document(doc_type: str, doc_number: str):
-    """Supprime un document de la base (annule une détection de doublon)."""
+async def remove_document(
+    doc_type  : str,
+    doc_number: str,
+    token_data: dict = Depends(verify_token),
+):
+    """Supprime un document de la base SQLite — réservé aux administrateurs (role: admin)."""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
     deleted = delete_document(doc_type, doc_number)
     return {"deleted": deleted, "doc_type": doc_type, "doc_number": doc_number}
+
+
+# ── PostgreSQL : historique complet ──────────────────────────────────────────
+
+@app.get("/pg/documents")
+async def pg_documents(limit: int = 50):
+    """Retourne l'historique complet depuis PostgreSQL (factures + traites)."""
+    rows = get_documents_pg(limit)
+    return {"documents": rows, "count": len(rows), "status": "ok"}
+
+
+class SaveRequest(BaseModel):
+    filename:     str
+    entities:     dict
+    doc_type:     str = "auto"
+    audit_report: dict = {}
+
+
+@app.post("/save")
+async def save_entities(
+    req: SaveRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Sauvegarde manuelle des entités (éventuellement corrigées) en PostgreSQL."""
+    try:
+        # Normalize keys to lowercase so save_document can match field names
+        entities_norm = {k.lower(): v for k, v in req.entities.items()}
+
+        # Set _document_type so save_document selects the right table
+        is_traite = req.doc_type in ("lettre_de_change", "traite") or \
+                    "lettre" in req.doc_type or "traite" in req.doc_type
+        entities_norm["_document_type"] = "lettre_de_change" if is_traite else "facture"
+
+        # Bridge GLM uppercase keys → expected lowercase field names
+        if is_traite:
+            if "num_lettre" not in entities_norm:
+                entities_norm["num_lettre"] = entities_norm.get("numero_traite", "")
+            if "montant" not in entities_norm:
+                entities_norm["montant"] = entities_norm.get("montant_ttc") or entities_norm.get("montant", "")
+        else:
+            if "num_facture" not in entities_norm:
+                entities_norm["num_facture"] = entities_norm.get("numero_facture", "")
+            if "net_a_payer" not in entities_norm:
+                entities_norm["net_a_payer"] = entities_norm.get("montant_ttc", "")
+
+        doc_id = save_document(
+            filename       = req.filename,
+            entities       = entities_norm,
+            audit_report   = req.audit_report,
+            owner_username = _owner_from_token(authorization),
+        )
+        if doc_id is None:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "error": "PostgreSQL non disponible"},
+            )
+        return {"status": "ok", "doc_id": doc_id}
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
+@app.get("/pg/documents/{doc_id}")
+async def pg_document_detail(doc_id: int):
+    """Retourne le détail complet d'un document (entités + audit JSON)."""
+    facture = get_facture(doc_id)
+    traite  = get_traite(doc_id)
+    if not facture and not traite:
+        return JSONResponse(status_code=404, content={"error": f"Document {doc_id} introuvable"})
+    return {"doc_id": doc_id, "data": facture or traite, "status": "ok"}

@@ -77,15 +77,23 @@ class AuditorState(TypedDict):
     date_doc    : Optional[str]
 
     # ── Résultats des checks ───────────────────────────────────────────────────
-    check_arithmetique : Optional[List[dict]]
-    check_tva          : Optional[dict]
-    check_net          : Optional[dict]
-    check_doublon      : Optional[dict]
-    check_gouvernance  : Optional[dict]
+    check_arithmetique   : Optional[List[dict]]
+    check_tva            : Optional[dict]
+    check_net            : Optional[dict]
+    check_lettres        : Optional[dict]    # Couche 3 : cross-check lettres vs montant numérique
+    check_doublon        : Optional[dict]
+    check_gouvernance    : Optional[dict]
+    # Traite-specific
+    check_montant_traite : Optional[dict]   # Montant lettres vs chiffres
+    check_echeance       : Optional[dict]   # Date d'échéance présente et valide
 
     # ── Output final ──────────────────────────────────────────────────────────
-    status_validite : Optional[str]   # VALIDÉ | ERREUR_CALCUL | ERREUR_TVA | DOUBLON | ...
-    audit_report    : Optional[dict]
+    status_validite     : Optional[str]    # VALIDÉ | ERREUR_CALCUL | ERREUR_TVA | DOUBLON | ...
+    audit_report        : Optional[dict]
+
+    # ── Notification email (Agent 2 — notifier.py) ────────────────────────────
+    notification_sent   : Optional[bool]   # True si email envoyé avec succès
+    notification_alerts : Optional[List[str]]  # Liste des raisons d'alerte
 
 
 class AnalystState(TypedDict):

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { login, register } from "@/lib/auth";
+import { fetchToken } from "@/lib/api";
 import heroScanner from "@/assets/image_facture.png";
 import odsinetLogoBanner from "@/assets/odsinet-logo-bunner .png";
 
@@ -151,6 +152,8 @@ const LoginPage = () => {
     const user = login(loginUser.trim(), loginPwd);
     setLoading(false);
     if (!user) { setError("Invalid username or password."); return; }
+    // Obtenir un JWT FastAPI pour les appels protégés (silencieux si agent hors ligne)
+    fetchToken(user.username, user.role).catch(() => {});
     navigate("/");
   };
 

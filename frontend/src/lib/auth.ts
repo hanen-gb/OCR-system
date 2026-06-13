@@ -13,6 +13,7 @@ export interface UserProfile {
   email: string;
   role: Role;
   avatarColor: string;
+  photo?: string;       // base64 data-URL de la photo de profil
   bio: string;
   createdAt: string;
   lang: Lang;
@@ -150,7 +151,7 @@ export function register(
 
 export function updateProfile(
   username: string,
-  updates: Partial<Pick<UserProfile, "displayName" | "email" | "bio" | "avatarColor" | "lang" | "theme">>,
+  updates: Partial<Pick<UserProfile, "displayName" | "email" | "bio" | "avatarColor" | "photo" | "lang" | "theme">>,
 ): boolean {
   const users = loadUsers();
   const idx = users.findIndex((u) => u.username === username);

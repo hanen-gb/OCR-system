@@ -163,6 +163,75 @@ const translations = {
     agent_copy: "Copier JSON",
     agent_copied: "Copié ✓",
 
+    // Agent status badge
+    agent_status_online:   "Agent IA — actif ✓",
+    agent_status_offline:  "Agent IA — hors ligne",
+    agent_status_checking: "Agent IA — vérification…",
+
+    // Entity editing
+    entity_editable:    "Éditable",
+    entity_click_edit:  "Cliquer ✏ pour éditer",
+    entity_restore:     "Rétablir original",
+    entity_corrected:   "corrigé",
+    doc_badge_traite:   "Lettre de Change",
+
+    // Agent trigger
+    start_agents:   "Lancer l'analyse multi-agents",
+    agents_running: "Agents en cours d'analyse…",
+
+    // Agent section status badges
+    agent_in_progress:    "En cours",
+    agent_fields:         "champs",
+    agent_server_error:   "Erreur serveur",
+    agent_offline_badge:  "Hors ligne",
+    agent_extract_error:  "Erreur lors de l'extraction — vérifier les logs du serveur",
+    agent_file_type_label:"fichier détecté :",
+    agent_waiting:        "En attente des résultats de l'agent…",
+
+    // Audit section (Agent 2)
+    audit_title:             "Rapport d'Audit — Agent 2",
+    audit_sub_facture:       "Arithmétique · TVA · Net à payer · Doublon · Gouvernance",
+    audit_sub_traite:        "Montant Lettres · Échéance · Gouvernance · Doublon",
+    audit_kpi_arithmetic:    "Arithmétique",
+    audit_kpi_tva:           "TVA",
+    audit_kpi_net:           "Net à payer",
+    audit_kpi_doublon:       "Doublon",
+    audit_kpi_governance:    "Gouvernance",
+    audit_kpi_montant_lettres: "Montant Lettres",
+    audit_kpi_echeance:      "Échéance",
+    audit_actor_fournisseur: "Fournisseur",
+    audit_actor_tireur:      "Tireur",
+    audit_incomplete_totals: "Document potentiellement incomplet — le bloc des totaux est absent de l'image",
+    audit_unavailable:       "Audit non disponible — l'extraction a échoué.",
+    audit_status_new:        "Nouveau",
+
+    // Analyst section (Agent 3)
+    analyst_title:       "Analyse Comportementale — Agent 3",
+    analyst_sub_traite:  "Historique Tireur · Échéance · Anomalies · Recommandations LLM",
+    analyst_sub_facture: "Historique Fournisseur · Anomalies · Recommandations LLM",
+    analyst_llm_title:   "Analyse LLM",
+    analyst_anomalies:   "Anomalies",
+    analyst_no_anomaly:  "Aucune anomalie détectée",
+    analyst_stats:       "Statistiques",
+    analyst_global_base: "Base globale",
+    analyst_suppliers:   "fournisseur(s)",
+    analyst_unavailable: "Analyse non disponible — l'extraction a échoué.",
+
+    // Alert levels
+    alert_normal:    "Normal",
+    alert_attention: "Attention",
+    alert_alerte:    "Alerte",
+
+    // Actions / DB save
+    corrections_saved:    "Corrections enregistrées ✓",
+    corrections_validate: "Valider",
+    correction_word:      "correction",
+    no_corrections:       "Aucune correction",
+    db_saving:            "Enregistrement…",
+    db_saved:             "Enregistré en BDD ✓",
+    db_error:             "Erreur — serveur local hors ligne",
+    db_save:              "Enregistrer en BDD",
+
     // Common
     common_save: "Enregistrer",
     common_cancel: "Annuler",
@@ -331,6 +400,75 @@ const translations = {
     agent_doc_type: "Detected type",
     agent_copy: "Copy JSON",
     agent_copied: "Copied ✓",
+
+    // Agent status badge
+    agent_status_online:   "AI Agent — active ✓",
+    agent_status_offline:  "AI Agent — offline",
+    agent_status_checking: "AI Agent — checking…",
+
+    // Entity editing
+    entity_editable:    "Editable",
+    entity_click_edit:  "Click ✏ to edit",
+    entity_restore:     "Restore original",
+    entity_corrected:   "corrected",
+    doc_badge_traite:   "Bill of Exchange",
+
+    // Agent trigger
+    start_agents:   "Start multi-agent analysis",
+    agents_running: "Agents analyzing…",
+
+    // Agent section status badges
+    agent_in_progress:     "In progress",
+    agent_fields:          "fields",
+    agent_server_error:    "Server error",
+    agent_offline_badge:   "Offline",
+    agent_extract_error:   "Extraction error — check server logs",
+    agent_file_type_label: "file detected:",
+    agent_waiting:         "Waiting for agent results…",
+
+    // Audit section (Agent 2)
+    audit_title:             "Audit Report — Agent 2",
+    audit_sub_facture:       "Arithmetic · VAT · Net payable · Duplicate · Governance",
+    audit_sub_traite:        "Amount in Words · Due Date · Governance · Duplicate",
+    audit_kpi_arithmetic:    "Arithmetic",
+    audit_kpi_tva:           "VAT",
+    audit_kpi_net:           "Net payable",
+    audit_kpi_doublon:       "Duplicate",
+    audit_kpi_governance:    "Governance",
+    audit_kpi_montant_lettres: "Amount in Words",
+    audit_kpi_echeance:      "Due Date",
+    audit_actor_fournisseur: "Supplier",
+    audit_actor_tireur:      "Drawer",
+    audit_incomplete_totals: "Document potentially incomplete — the totals block is missing from the image",
+    audit_unavailable:       "Audit unavailable — extraction failed.",
+    audit_status_new:        "New",
+
+    // Analyst section (Agent 3)
+    analyst_title:       "Behavioral Analysis — Agent 3",
+    analyst_sub_traite:  "Drawer History · Due Date · Anomalies · LLM Recommendations",
+    analyst_sub_facture: "Supplier History · Anomalies · LLM Recommendations",
+    analyst_llm_title:   "LLM Analysis",
+    analyst_anomalies:   "Anomalies",
+    analyst_no_anomaly:  "No anomaly detected",
+    analyst_stats:       "Statistics",
+    analyst_global_base: "Global base",
+    analyst_suppliers:   "supplier(s)",
+    analyst_unavailable: "Analysis unavailable — extraction failed.",
+
+    // Alert levels
+    alert_normal:    "Normal",
+    alert_attention: "Attention",
+    alert_alerte:    "Alert",
+
+    // Actions / DB save
+    corrections_saved:    "Corrections saved ✓",
+    corrections_validate: "Validate",
+    correction_word:      "correction",
+    no_corrections:       "No corrections",
+    db_saving:            "Saving…",
+    db_saved:             "Saved to DB ✓",
+    db_error:             "Error — local server offline",
+    db_save:              "Save to DB",
 
     // Common
     common_save: "Save",

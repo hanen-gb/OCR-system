@@ -1,0 +1,786 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 7200" width="1800" height="7200" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d97706"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/>
+    </marker>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- ═══════════════════════════ BACKGROUND ═══════════════════════════ -->
+  <rect width="1800" height="7200" fill="#f1f5f9"/>
+
+  <!-- ═══════════════════════════ GLOBAL TITLE ═══════════════════════════ -->
+  <rect x="50" y="20" width="1700" height="90" rx="12" fill="#0f172a" filter="url(#shadow)"/>
+  <text x="900" y="58" text-anchor="middle" fill="white" font-size="22" font-weight="bold">ODSINET — Architecture Multi-Agent OCR</text>
+  <text x="900" y="88" text-anchor="middle" fill="#94a3b8" font-size="14">LangGraph · Groq · OCR.space · Gemini · HuggingFace · SQLite</text>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!--                     AGENT 1 — L'EXTRACTEUR                         -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <rect x="50" y="130" width="1700" height="1680" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="50" y="130" width="1700" height="52" rx="14" fill="#1d4ed8"/>
+  <rect x="50" y="162" width="1700" height="20" fill="#1d4ed8"/>
+  <text x="900" y="163" text-anchor="middle" fill="white" font-size="19" font-weight="bold">AGENT 1 — L'EXTRACTEUR</text>
+  <text x="900" y="185" text-anchor="middle" fill="#bfdbfe" font-size="12">extractor/graph.py  ·  extractor/tools.py</text>
+
+  <!-- INPUT box -->
+  <rect x="550" y="200" width="700" height="40" rx="8" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="900" y="216" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="bold">INPUT :</text>
+  <text x="900" y="232" text-anchor="middle" fill="#1e3a8a" font-size="11">file_path  ·  document_type  ·  base_entities (GLM fine-tuné)</text>
+
+  <!-- START -->
+  <ellipse cx="900" cy="270" rx="55" ry="22" fill="#1d4ed8"/>
+  <text x="900" y="275" text-anchor="middle" fill="white" font-size="13" font-weight="bold">START</text>
+  <line x1="900" y1="292" x2="900" y2="318" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE 1 : detect_type -->
+  <rect x="300" y="320" width="1200" height="155" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="300" y="320" width="1200" height="30" rx="10" fill="#3b82f6"/>
+  <rect x="300" y="340" width="1200" height="10" fill="#3b82f6"/>
+  <text x="900" y="341" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : detect_type_node</text>
+  <text x="320" y="368" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="395" y="368" fill="#6b7280" font-size="11">extractor/graph.py : ligne 36</text>
+  <!-- Tool box inside -->
+  <rect x="320" y="378" width="1160" height="82" rx="7" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="340" y="396" fill="#1d4ed8" font-size="11" font-weight="bold">@tool  detect_file_type(file_path)</text>
+  <text x="340" y="396" fill="#1d4ed8" font-size="11" font-weight="bold">                                         Fichier : extractor/tools.py : ligne 261</text>
+  <text x="340" y="413" fill="#374151" font-size="10.5">Bibliothèque : pdfplumber</text>
+  <text x="340" y="428" fill="#374151" font-size="10.5">• Extension image (.jpg/.png/...) → "image"   • PDF + texte ≥ 50 chars → "pdf_native"   • PDF sans texte → "pdf_scanned"</text>
+  <text x="340" y="443" fill="#374151" font-size="10.5">Retourne : &#123; file_type: "pdf_native" | "pdf_scanned" | "image",  pages: int,  extension: str &#125;</text>
+  <text x="340" y="458" fill="#6b21a8" font-size="10" font-style="italic">route_extraction() — graph.py : ligne 235  →  routage conditionnel</text>
+
+  <!-- Branch arrows -->
+  <line x1="700" y1="475" x2="560" y2="520" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="1100" y1="475" x2="1240" y2="520" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="580" y="505" fill="#1d4ed8" font-size="11" font-weight="bold">pdf_native</text>
+  <text x="1140" y="505" fill="#1d4ed8" font-size="11" font-weight="bold">image / pdf_scanned</text>
+
+  <!-- NODE 2a : extract_native -->
+  <rect x="100" y="525" width="580" height="145" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="100" y="525" width="580" height="28" rx="10" fill="#60a5fa"/>
+  <rect x="100" y="543" width="580" height="10" fill="#60a5fa"/>
+  <text x="390" y="544" text-anchor="middle" fill="white" font-size="12" font-weight="bold">NŒUD : extract_native_node</text>
+  <text x="120" y="567" fill="#374151" font-size="10.5" font-weight="bold">Fichier :</text>
+  <text x="175" y="567" fill="#6b7280" font-size="10.5">extractor/graph.py : ligne 45</text>
+  <rect x="115" y="575" width="550" height="82" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="130" y="592" fill="#1d4ed8" font-size="10.5" font-weight="bold">@tool  extract_text_pdf_native(file_path)</text>
+  <text x="130" y="607" fill="#374151" font-size="10">Fichier : extractor/tools.py : ligne 306</text>
+  <text x="130" y="621" fill="#374151" font-size="10">Bibliothèque : pdfplumber</text>
+  <text x="130" y="635" fill="#374151" font-size="10">• page.extract_text()  +  page.extract_tables()</text>
+  <text x="130" y="649" fill="#374151" font-size="10">Retourne : str (texte brut, tableaux format col1 | col2)</text>
+
+  <!-- NODE 2b : extract_vision -->
+  <rect x="1120" y="525" width="630" height="185" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="1120" y="525" width="630" height="28" rx="10" fill="#60a5fa"/>
+  <rect x="1120" y="543" width="630" height="10" fill="#60a5fa"/>
+  <text x="1435" y="544" text-anchor="middle" fill="white" font-size="12" font-weight="bold">NŒUD : extract_vision_node</text>
+  <text x="1140" y="567" fill="#374151" font-size="10.5" font-weight="bold">Fichier :</text>
+  <text x="1195" y="567" fill="#6b7280" font-size="10.5">extractor/graph.py : ligne 51</text>
+  <rect x="1135" y="575" width="600" height="122" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="1150" y="592" fill="#1d4ed8" font-size="10.5" font-weight="bold">@tool  extract_text_vision(image_path)</text>
+  <text x="1150" y="607" fill="#374151" font-size="10">Fichier : extractor/tools.py : ligne 346</text>
+  <text x="1150" y="622" fill="#374151" font-size="10" font-weight="bold">Chaîne de fallback OCR :</text>
+  <rect x="1150" y="628" width="570" height="16" rx="3" fill="#fee2e2"/>
+  <text x="1162" y="640" fill="#dc2626" font-size="10" font-weight="bold">1. OCR.space REST API</text>
+  <text x="1310" y="640" fill="#6b7280" font-size="10">→ _call_ocr_space()  tools.py:165  |  OCR_SPACE_API_KEY</text>
+  <rect x="1150" y="648" width="570" height="16" rx="3" fill="#fef9c3"/>
+  <text x="1162" y="660" fill="#ca8a04" font-size="10" font-weight="bold">2. Google Gemini Vision</text>
+  <text x="1320" y="660" fill="#6b7280" font-size="10">→ _call_vision_model_fallback()  tools.py:219  |  GOOGLE_API_KEY</text>
+  <rect x="1150" y="668" width="570" height="16" rx="3" fill="#f0fdf4"/>
+  <text x="1162" y="680" fill="#16a34a" font-size="10" font-weight="bold">3. Groq Vision (llama-4-scout)</text>
+  <text x="1330" y="680" fill="#6b7280" font-size="10">→ tools.py:235  |  GROQ_API_KEY</text>
+  <text x="1150" y="694" fill="#374151" font-size="10">Retourne : str (texte brut extrait par OCR)</text>
+
+  <!-- Convergence arrows -->
+  <line x1="390" y1="670" x2="700" y2="720" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="1435" y1="710" x2="1100" y2="720" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- NODE 3 : extract_entities -->
+  <rect x="130" y="725" width="1540" height="210" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="130" y="725" width="1540" height="28" rx="10" fill="#3b82f6"/>
+  <rect x="130" y="743" width="1540" height="10" fill="#3b82f6"/>
+  <text x="900" y="744" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : extract_entities_node  —  Sections I (Articles, Taxes) + III (Paiement, Logistique)</text>
+  <text x="150" y="768" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="205" y="768" fill="#6b7280" font-size="11">extractor/graph.py : ligne 58</text>
+  <rect x="150" y="777" width="1500" height="145" rx="7" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="170" y="795" fill="#1d4ed8" font-size="11" font-weight="bold">@tool  extract_augmented_entities(raw_text, base_entities_json, document_type)</text>
+  <text x="170" y="810" fill="#6b7280" font-size="10.5">Fichier : extractor/tools.py : ligne 879  ·  Chaîne LLM via _call_llm() — tools.py : ligne 49</text>
+  <!-- LLM chain boxes -->
+  <rect x="170" y="818" width="455" height="38" rx="5" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="185" y="833" fill="#15803d" font-size="10.5" font-weight="bold">① Groq  qwen/qwen3-32b  (prioritaire)</text>
+  <text x="185" y="848" fill="#374151" font-size="9.5">GROQ_API_KEY  ·  api.groq.com/openai/v1  ·  max_tokens=8192</text>
+  <rect x="640" y="818" width="420" height="38" rx="5" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+  <text x="655" y="833" fill="#a16207" font-size="10.5" font-weight="bold">② HF  Qwen/Qwen2.5-7B-Instruct</text>
+  <text x="655" y="848" fill="#374151" font-size="9.5">HF_API_KEY  ·  InferenceClient  ·  fallback si Groq 429</text>
+  <rect x="1075" y="818" width="550" height="38" rx="5" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="1090" y="833" fill="#be185d" font-size="10.5" font-weight="bold">③ Google Gemini  2.0-flash → 1.5-flash → 1.5-pro</text>
+  <text x="1090" y="848" fill="#374151" font-size="9.5">GOOGLE_API_KEY  ·  ChatGoogleGenerativeAI  ·  fallback si HF 429</text>
+  <text x="170" y="872" fill="#374151" font-size="10.5">Prompt : 17 règles (anti-hallucination, millimes tunisiens, colonnes tableau, devise, FODEC, GPS...)  ·  _repair_truncated_json() l.124</text>
+  <text x="170" y="887" fill="#374151" font-size="10.5">Retourne : JSON string  —  40+ champs structurés  (articles, montants, coordonnées, références logistiques)</text>
+  <text x="170" y="902" fill="#6b7280" font-size="10">Schéma : FACTURE (num_facture, articles[], montant_ht, montant_tva, timbre_fiscal, net_a_payer, mode_reglement, matricules, adresses, devise, ...)</text>
+  <text x="170" y="916" fill="#6b7280" font-size="10">          LETTRE DE CHANGE (montant_en_lettres, lieu_creation, banque_domiciliataire, rib_tire, endossements, aval_bancaire, ...)</text>
+
+  <line x1="900" y1="935" x2="900" y2="962" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE 4 : extract_visual -->
+  <rect x="130" y="965" width="1540" height="215" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="130" y="965" width="1540" height="28" rx="10" fill="#3b82f6"/>
+  <rect x="130" y="983" width="1540" height="10" fill="#3b82f6"/>
+  <text x="900" y="984" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : extract_visual_node  —  Section II (Tampons, Signatures, Articles visuels)</text>
+  <text x="150" y="1008" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="205" y="1008" fill="#6b7280" font-size="11">extractor/graph.py : ligne 81</text>
+  <rect x="150" y="1017" width="1500" height="150" rx="7" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="170" y="1035" fill="#1d4ed8" font-size="11" font-weight="bold">@tool  extract_visual_fields(image_path, document_type)</text>
+  <text x="170" y="1050" fill="#6b7280" font-size="10.5">Fichier : extractor/tools.py : ligne 661</text>
+  <!-- Vision chain -->
+  <rect x="170" y="1058" width="620" height="38" rx="5" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="185" y="1073" fill="#15803d" font-size="10.5" font-weight="bold">① Groq  meta-llama/llama-4-scout-17b-16e-instruct  (vision multimodal)</text>
+  <text x="185" y="1088" fill="#374151" font-size="9.5">GROQ_API_KEY  ·  openai.OpenAI(base_url=Groq)  ·  tools.py:813  ·  max_tokens: 4096(facture) | 1024(traite)</text>
+  <rect x="805" y="1058" width="820" height="38" rx="5" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="820" y="1073" fill="#be185d" font-size="10.5" font-weight="bold">② Gemini 2.0-flash → 1.5-flash → 1.5-pro  (fallback vision)</text>
+  <text x="820" y="1088" fill="#374151" font-size="9.5">GOOGLE_API_KEY  ·  ChatGoogleGenerativeAI  ·  tools.py:837</text>
+  <text x="170" y="1112" fill="#374151" font-size="10.5" font-weight="bold">FACTURE détecte :</text>
+  <text x="170" y="1126" fill="#374151" font-size="10">cachet_present · signature_presente · notes_manuscrites · etat_document · logo_detecte · logo_nom · articles[] (colonnes QTE/PU/HT lues visuellement)</text>
+  <text x="170" y="1141" fill="#374151" font-size="10.5" font-weight="bold">LETTRE DE CHANGE détecte :</text>
+  <text x="170" y="1155" fill="#374151" font-size="10">cachet_present · signature_tire · signature_tireur · aval_bancaire · aval_details · banque_domiciliataire · notes_manuscrites</text>
+
+  <line x1="900" y1="1180" x2="900" y2="1207" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE 5 : merge -->
+  <rect x="130" y="1210" width="1540" height="170" rx="10" fill="white" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="130" y="1210" width="1540" height="28" rx="10" fill="#3b82f6"/>
+  <rect x="130" y="1228" width="1540" height="10" fill="#3b82f6"/>
+  <text x="900" y="1229" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : merge_node  —  Fusion des 3 sources</text>
+  <text x="150" y="1253" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="205" y="1253" fill="#6b7280" font-size="11">extractor/graph.py : ligne 108  ·  Aucune API externe — logique Python pure</text>
+  <text x="150" y="1270" fill="#374151" font-size="11" font-weight="bold">Règle de fusion :</text>
+  <text x="150" y="1285" fill="#374151" font-size="11">complete = &#123;**augmented_entities, **visual_fields, **base_entities(GLM)&#125;   →   visual_fields ÉCRASE augmented pour Section II + articles[]</text>
+  <!-- Post-treatments -->
+  <rect x="150" y="1293" width="1500" height="78" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="170" y="1309" fill="#15803d" font-size="11" font-weight="bold">6 Post-traitements automatiques (sans API) :</text>
+  <text x="170" y="1324" fill="#374151" font-size="10">① _restore_millimes() l.134 — entier ≥ 10000 sans décimales → ÷1000   (718200 → 718.200)</text>
+  <text x="170" y="1338" fill="#374151" font-size="10">② GPS_PATTERN l.160 — coordonnées GPS dans adresse_client/fournisseur → null</text>
+  <text x="170" y="1352" fill="#374151" font-size="10">③ timbre_fiscal l.168 — valeur > 50 DT → null (confusion avec TTC)    ④ numero_facture l.179 — texte/adresse long → null ou regex   ⑤ Devise EUR l.201 — regex \bEUR\b / € / SIRET   ⑥ Articles l.121 — vision > texte si vision non vide</text>
+
+  <line x1="900" y1="1380" x2="900" y2="1405" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- END Agent 1 -->
+  <ellipse cx="900" cy="1425" rx="55" ry="22" fill="#1d4ed8"/>
+  <text x="900" y="1430" text-anchor="middle" fill="white" font-size="13" font-weight="bold">END</text>
+  <rect x="550" y="1455" width="700" height="35" rx="8" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="900" y="1469" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="bold">OUTPUT :</text>
+  <text x="900" y="1483" text-anchor="middle" fill="#1e3a8a" font-size="11">complete_entities — JSON complet (40+ champs, 3 sections)</text>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!--                     AGENT 2 — L'AUDITEUR                           -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <rect x="50" y="1830" width="1700" height="1720" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="50" y="1830" width="1700" height="52" rx="14" fill="#15803d"/>
+  <rect x="50" y="1862" width="1700" height="20" fill="#15803d"/>
+  <text x="900" y="1863" text-anchor="middle" fill="white" font-size="19" font-weight="bold">AGENT 2 — L'AUDITEUR</text>
+  <text x="900" y="1885" text-anchor="middle" fill="#bbf7d0" font-size="12">auditor/graph.py  ·  auditor/checks.py  ·  auditor/db.py  ·  Aucun LLM — Logique pure déterministe</text>
+
+  <!-- INPUT A2 -->
+  <rect x="450" y="1900" width="900" height="40" rx="8" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="900" y="1916" text-anchor="middle" fill="#14532d" font-size="11" font-weight="bold">INPUT :</text>
+  <text x="900" y="1932" text-anchor="middle" fill="#14532d" font-size="11">complete_entities (Agent 1)  +  base_entities (GLM)</text>
+
+  <ellipse cx="900" cy="1968" rx="55" ry="22" fill="#15803d"/>
+  <text x="900" y="1973" text-anchor="middle" fill="white" font-size="13" font-weight="bold">START</text>
+  <line x1="900" y1="1990" x2="900" y2="2015" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-1 : prepare -->
+  <rect x="200" y="2018" width="1400" height="155" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2018" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2036" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2037" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : prepare_node</text>
+  <text x="220" y="2062" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2062" fill="#6b7280" font-size="11">auditor/graph.py : ligne 98</text>
+  <rect x="220" y="2070" width="1360" height="90" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2088" fill="#15803d" font-size="11" font-weight="bold">Fonctions utilisées (auditor/graph.py) :</text>
+  <text x="240" y="2103" fill="#374151" font-size="10.5">_str(d, *keys)  l.36 — extrait un champ string non-vide          _num(d, *keys)  l.44 — parse float (gère virgule FR/TN : "135,660" → 135.660)</text>
+  <text x="240" y="2118" fill="#374151" font-size="10.5">_is_hallucinated(value, articles, montant_ht)  l.64 — Cas 1: chiffres répétitifs (333333...)   Cas 2: valeur > 10× Σ articles   Cas 3: valeur > 5× montant_ht</text>
+  <text x="240" y="2133" fill="#374151" font-size="10.5">Résout : doc_type, doc_number, fournisseur, montant_ttc, date_doc  depuis complete_entities et base_entities (fallback)</text>
+  <text x="240" y="2150" fill="#374151" font-size="10.5">FACTURE : num_facture / numero_facture · fournisseur.nom · montant_ttc / net_a_payer · date_facture     TRAITE : num_lettre · tireur · montant · date_echeance</text>
+
+  <line x1="900" y1="2173" x2="900" y2="2198" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-2 : arithmetic -->
+  <rect x="200" y="2201" width="1400" height="145" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2201" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2219" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2220" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : arithmetic_node  —  Vérification par ligne d'article</text>
+  <text x="220" y="2245" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2245" fill="#6b7280" font-size="11">auditor/graph.py : ligne 137</text>
+  <rect x="220" y="2253" width="1360" height="83" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2271" fill="#15803d" font-size="11" font-weight="bold">check_arithmetic_lines(articles)  —  auditor/checks.py : ligne 35</text>
+  <text x="240" y="2286" fill="#374151" font-size="10.5">Formule : QTE × PU_HT × (1 - remise_pct_ligne/100)  ≈  total_ht_ligne</text>
+  <text x="240" y="2301" fill="#374151" font-size="10.5">Tolérance : TOLERANCE = 0.005 DT (5 millimes)  —  checks.py : ligne 8</text>
+  <text x="240" y="2316" fill="#374151" font-size="10.5">Statuts par ligne : OK | ERREUR | INCOMPLET (QTE/PU/Total manquant) | ERREUR_TYPE</text>
+  <text x="240" y="2328" fill="#374151" font-size="10.5">_parse_tva_rate()  l.11 — corrige erreurs OCR : "2016" → 20%,  "1906" → 19%,  "19%" → 0.19</text>
+
+  <line x1="900" y1="2346" x2="900" y2="2371" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-3 : tva -->
+  <rect x="200" y="2374" width="1400" height="165" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2374" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2392" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2393" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : tva_node  —  Validation TVA globale</text>
+  <text x="220" y="2418" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2418" fill="#6b7280" font-size="11">auditor/graph.py : ligne 146</text>
+  <rect x="220" y="2426" width="1360" height="100" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2444" fill="#15803d" font-size="11" font-weight="bold">validate_tva_globale(articles, montant_tva_extrait)  —  auditor/checks.py : ligne 87</text>
+  <text x="240" y="2459" fill="#374151" font-size="10.5">Formule : Σ(total_ht_ligne × taux_tva_ligne)  ≈  montant_tva_global   ·   Tolérance : 0.005 DT</text>
+  <text x="240" y="2474" fill="#374151" font-size="10.5" font-weight="bold">Fallbacks dans tva_node (graph.py) :</text>
+  <text x="240" y="2489" fill="#374151" font-size="10.5">• montant_tva null → calculé : HT × taux_rate  l.157    • tva_rate_ligne absent → injecte taux global sur chaque ligne  l.198</text>
+  <text x="240" y="2504" fill="#374151" font-size="10.5">• tva_rate aberrant (ex: 18%) → recalcule depuis montant_tva/montant_ht → arrondi taux connu {7,13,19,20,25}  l.180</text>
+  <text x="240" y="2519" fill="#374151" font-size="10.5">• remise_globale → distribuée proportionnellement sur lignes avant calcul TVA  l.208</text>
+
+  <line x1="900" y1="2539" x2="900" y2="2564" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-4 : net -->
+  <rect x="200" y="2567" width="1400" height="165" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2567" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2585" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2586" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : net_node  —  Conformité Net à payer</text>
+  <text x="220" y="2611" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2611" fill="#6b7280" font-size="11">auditor/graph.py : ligne 230</text>
+  <rect x="220" y="2619" width="1360" height="100" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2637" fill="#15803d" font-size="11" font-weight="bold">check_net_a_payer(montant_ht, montant_tva, timbre, net_extrait, fodec, net_htva)  —  checks.py : ligne 125</text>
+  <text x="240" y="2652" fill="#374151" font-size="10.5">Formule : base_htva + TVA + Timbre  ≈  net_a_payer   ·   Priorité base_htva : ① net_htva  ② montant_ht+fodec  ③ montant_ht seul</text>
+  <text x="240" y="2667" fill="#374151" font-size="10.5" font-weight="bold">Triple fallback montant_ht (graph.py) :</text>
+  <text x="240" y="2682" fill="#374151" font-size="10.5">• FB1 : montant_ht_ar (après remise)  l.238    • FB2 : Σ(total_ht_ligne des articles)  l.243    • FB3 : rétro-calcul TTC − TVA − Timbre − FODEC  l.258</text>
+  <text x="240" y="2697" fill="#374151" font-size="10.5">• montant_tva null → calculé depuis HT × taux avant vérification  l.272</text>
+
+  <line x1="900" y1="2732" x2="900" y2="2757" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-5 : doublon -->
+  <rect x="200" y="2760" width="1400" height="140" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2760" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2778" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2779" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : doublon_node  —  Détection de doublons</text>
+  <text x="220" y="2804" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2804" fill="#6b7280" font-size="11">auditor/graph.py : ligne 293</text>
+  <rect x="220" y="2812" width="1360" height="78" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2830" fill="#15803d" font-size="11" font-weight="bold">check_doublon(doc_type, doc_number)  —  auditor/db.py : ligne 46</text>
+  <text x="240" y="2845" fill="#374151" font-size="10.5">STOCKAGE : SQLite  →  assistant/data/documents.db   ·   Index UNIQUE sur (doc_type, doc_number)  db.py:38</text>
+  <text x="240" y="2860" fill="#374151" font-size="10.5">Retourne : &#123;"status": "NOUVEAU"&#125;  |  &#123;"status": "DOUBLON", "first_seen": "...", "detail": "..."&#125;  |  &#123;"status": "INCONNU"&#125;</text>
+  <text x="240" y="2880" fill="#6b7280" font-size="10">init_db()  db.py:27  ·  _connect()  db.py:20  ·  Création automatique de la table si absente</text>
+
+  <line x1="900" y1="2900" x2="900" y2="2925" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-6 : gouvernance -->
+  <rect x="200" y="2928" width="1400" height="140" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="2928" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="2946" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="2947" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : gouvernance_node  —  Signatures &amp; Tampons</text>
+  <text x="220" y="2972" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="2972" fill="#6b7280" font-size="11">auditor/graph.py : ligne 300</text>
+  <rect x="220" y="2980" width="1360" height="78" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="2998" fill="#15803d" font-size="11" font-weight="bold">check_governance(complete_entities)  —  auditor/checks.py : ligne 179</text>
+  <text x="240" y="3013" fill="#374151" font-size="10.5">FACTURE : vérifie signature_presente · cachet_present</text>
+  <text x="240" y="3028" fill="#374151" font-size="10.5">TRAITE  : vérifie signature_tire · signature_tireur · cachet_present · aval_bancaire</text>
+  <text x="240" y="3048" fill="#374151" font-size="10.5">Retourne : &#123; status: "OK" | "MANQUANT",  champs_manquants: [...] &#125;</text>
+
+  <line x1="900" y1="3068" x2="900" y2="3093" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A2-7 : verdict -->
+  <rect x="200" y="3096" width="1400" height="195" rx="10" fill="white" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="3096" width="1400" height="28" rx="10" fill="#22c55e"/>
+  <rect x="200" y="3114" width="1400" height="10" fill="#22c55e"/>
+  <text x="900" y="3115" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : verdict_node  —  Statut final &amp; Enregistrement</text>
+  <text x="220" y="3140" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="3140" fill="#6b7280" font-size="11">auditor/graph.py : ligne 308</text>
+  <rect x="220" y="3148" width="680" height="133" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="240" y="3166" fill="#15803d" font-size="11" font-weight="bold">Priorité des statuts :</text>
+  <text x="240" y="3181" fill="#dc2626" font-size="10.5">① DOUBLON</text>
+  <text x="240" y="3196" fill="#d97706" font-size="10.5">② SIGNATURE_MANQUANTE  (sauf facture électronique — l.320)</text>
+  <text x="240" y="3211" fill="#ea580c" font-size="10.5">③ ERREUR_CALCUL</text>
+  <text x="240" y="3226" fill="#ca8a04" font-size="10.5">④ ERREUR_TVA</text>
+  <text x="240" y="3241" fill="#a16207" font-size="10.5">⑤ ERREUR_NET_A_PAYER</text>
+  <text x="240" y="3256" fill="#15803d" font-size="10.5">⑥ VALIDÉ</text>
+  <text x="240" y="3271" fill="#6b7280" font-size="10">document_incomplet: true si HT+TVA+TTC=null mais articles présents (image tronquée)</text>
+  <rect x="915" y="3148" width="665" height="133" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="935" y="3166" fill="#15803d" font-size="11" font-weight="bold">register_document(doc_type, doc_number, ...)  —  auditor/db.py : ligne 79</text>
+  <text x="935" y="3181" fill="#374151" font-size="10.5">Appelé uniquement si status == "NOUVEAU" et doc_number présent</text>
+  <text x="935" y="3196" fill="#374151" font-size="10.5">INSERT OR IGNORE INTO documents (doc_type, doc_number, fournisseur, montant, date_doc, first_seen)</text>
+  <text x="935" y="3216" fill="#374151" font-size="11" font-weight="bold">Rapport final audit_report contient :</text>
+  <text x="935" y="3231" fill="#374151" font-size="10">status_validite · doc_type · doc_number · fournisseur · nb_articles</text>
+  <text x="935" y="3246" fill="#374151" font-size="10">nb_erreurs_calcul · check_arithmetique_lignes[] · validation_tva_globale</text>
+  <text x="935" y="3261" fill="#374151" font-size="10">conformite_net_a_payer · gouvernance · alerte_doublon · document_incomplet</text>
+
+  <line x1="900" y1="3291" x2="900" y2="3316" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <ellipse cx="900" cy="3336" rx="55" ry="22" fill="#15803d"/>
+  <text x="900" y="3341" text-anchor="middle" fill="white" font-size="13" font-weight="bold">END</text>
+  <rect x="450" y="3366" width="900" height="35" rx="8" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="900" y="3380" text-anchor="middle" fill="#14532d" font-size="11" font-weight="bold">OUTPUT :</text>
+  <text x="900" y="3395" text-anchor="middle" fill="#14532d" font-size="11">audit_report  +  status_validite (VALIDÉ | ERREUR_CALCUL | ERREUR_TVA | DOUBLON | ...)</text>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!--                     AGENT 3 — L'ANALYSTE                           -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <rect x="50" y="3580" width="1700" height="1380" rx="14" fill="#fffbeb" stroke="#d97706" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="50" y="3580" width="1700" height="52" rx="14" fill="#b45309"/>
+  <rect x="50" y="3612" width="1700" height="20" fill="#b45309"/>
+  <text x="900" y="3613" text-anchor="middle" fill="white" font-size="19" font-weight="bold">AGENT 3 — L'ANALYSTE</text>
+  <text x="900" y="3635" text-anchor="middle" fill="#fde68a" font-size="12">analyst/graph.py  ·  analyst/checks.py  ·  auditor/db.py (partagé)</text>
+
+  <rect x="450" y="3650" width="900" height="40" rx="8" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+  <text x="900" y="3666" text-anchor="middle" fill="#78350f" font-size="11" font-weight="bold">INPUT :</text>
+  <text x="900" y="3682" text-anchor="middle" fill="#78350f" font-size="11">complete_entities (Agent 1)  +  audit_report (Agent 2)</text>
+
+  <ellipse cx="900" cy="3718" rx="55" ry="22" fill="#b45309"/>
+  <text x="900" y="3723" text-anchor="middle" fill="white" font-size="13" font-weight="bold">START</text>
+  <line x1="900" y1="3740" x2="900" y2="3765" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A3-1 : load_history -->
+  <rect x="250" y="3768" width="1300" height="130" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="250" y="3768" width="1300" height="28" rx="10" fill="#f59e0b"/>
+  <rect x="250" y="3786" width="1300" height="10" fill="#f59e0b"/>
+  <text x="900" y="3787" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : load_history_node</text>
+  <text x="270" y="3812" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="325" y="3812" fill="#6b7280" font-size="11">analyst/graph.py : ligne 61</text>
+  <rect x="270" y="3820" width="1260" height="68" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="290" y="3838" fill="#b45309" font-size="11" font-weight="bold">list_documents(limit=500)  —  auditor/db.py : ligne 100  (fonction partagée avec Agent 2)</text>
+  <text x="290" y="3853" fill="#374151" font-size="10.5">STOCKAGE : SQLite → assistant/data/documents.db</text>
+  <text x="290" y="3868" fill="#374151" font-size="10.5">SELECT * FROM documents ORDER BY id DESC LIMIT 500  →  retourne List[dict] (historique complet)</text>
+  <text x="290" y="3880" fill="#374151" font-size="10.5">Charge dans l'état : historique = [&#123;doc_type, doc_number, fournisseur, montant, date_doc, first_seen&#125;, ...]</text>
+
+  <line x1="900" y1="3898" x2="900" y2="3923" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A3-2 : compute_stats -->
+  <rect x="250" y="3926" width="1300" height="145" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="250" y="3926" width="1300" height="28" rx="10" fill="#f59e0b"/>
+  <rect x="250" y="3944" width="1300" height="10" fill="#f59e0b"/>
+  <text x="900" y="3945" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : compute_stats_node</text>
+  <text x="270" y="3970" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="325" y="3970" fill="#6b7280" font-size="11">analyst/graph.py : ligne 68</text>
+  <rect x="270" y="3978" width="620" height="83" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="290" y="3996" fill="#b45309" font-size="11" font-weight="bold">compute_supplier_stats(historique, fournisseur)</text>
+  <text x="290" y="4010" fill="#6b7280" font-size="10">analyst/checks.py : ligne 13</text>
+  <text x="290" y="4025" fill="#374151" font-size="10">Filtre les docs par fournisseur (nom.lower())</text>
+  <text x="290" y="4040" fill="#374151" font-size="10">Retourne : &#123; nb_documents, montant_moyen,</text>
+  <text x="290" y="4053" fill="#374151" font-size="10">            montant_total, montants[] &#125;</text>
+  <rect x="910" y="3978" width="620" height="83" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="930" y="3996" fill="#b45309" font-size="11" font-weight="bold">compute_global_stats(historique)</text>
+  <text x="930" y="4010" fill="#6b7280" font-size="10">analyst/checks.py : ligne 35</text>
+  <text x="930" y="4025" fill="#374151" font-size="10">Retourne : &#123; nb_documents_total, nb_fournisseurs,</text>
+  <text x="930" y="4040" fill="#374151" font-size="10">            montant_total_base, montant_moyen_global,</text>
+  <text x="930" y="4053" fill="#374151" font-size="10">            repartition_types &#125;</text>
+
+  <line x1="900" y1="4071" x2="900" y2="4096" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A3-3 : detect_anomalies -->
+  <rect x="250" y="4099" width="1300" height="160" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="250" y="4099" width="1300" height="28" rx="10" fill="#f59e0b"/>
+  <rect x="250" y="4117" width="1300" height="10" fill="#f59e0b"/>
+  <text x="900" y="4118" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : detect_anomalies_node</text>
+  <text x="270" y="4143" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="325" y="4143" fill="#6b7280" font-size="11">analyst/graph.py : ligne 86</text>
+  <rect x="270" y="4151" width="1260" height="98" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="290" y="4169" fill="#b45309" font-size="11" font-weight="bold">detect_anomalies(montant_actuel, fournisseur, stats_fournisseur, stats_globales)</text>
+  <text x="290" y="4184" fill="#6b7280" font-size="10">analyst/checks.py : ligne 53</text>
+  <text x="290" y="4199" fill="#374151" font-size="10.5" font-weight="bold">Seuils (checks.py : ligne 8-10) :</text>
+  <text x="290" y="4214" fill="#374151" font-size="10.5">SEUIL_DEVIATION_ATTENTION = 30%   SEUIL_DEVIATION_ALERTE = 60%   SEUIL_MONTANT_ELEVE = 3× moy globale</text>
+  <text x="290" y="4229" fill="#374151" font-size="10.5" font-weight="bold">4 types d'anomalies :</text>
+  <text x="290" y="4242" fill="#374151" font-size="10">① NOUVEAU_FOURNISSEUR (l.63) → ATTENTION    ② MONTANT_ANORMAL écart ≥ 60% (l.72) → ALERTE    ③ MONTANT_INHABITUEL 30-60% (l.84) → ATTENTION    ④ MONTANT_ELEVE > 3× globale (l.96) → ATTENTION</text>
+
+  <line x1="900" y1="4259" x2="900" y2="4284" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A3-4 : generate_insights -->
+  <rect x="250" y="4287" width="1300" height="155" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="250" y="4287" width="1300" height="28" rx="10" fill="#f59e0b"/>
+  <rect x="250" y="4305" width="1300" height="10" fill="#f59e0b"/>
+  <text x="900" y="4306" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : generate_insights_node  —  Commentaire analytique LLM</text>
+  <text x="270" y="4331" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="325" y="4331" fill="#6b7280" font-size="11">analyst/graph.py : ligne 107</text>
+  <rect x="270" y="4339" width="1260" height="93" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="290" y="4357" fill="#b45309" font-size="11" font-weight="bold">_call_llm(prompt)  —  importée depuis extractor/tools.py : ligne 49  (chaîne Groq → HF → Gemini)</text>
+  <text x="290" y="4372" fill="#374151" font-size="10.5">Prompt injecte : doc_type · doc_number · fournisseur · montant · statut audit</text>
+  <text x="290" y="4387" fill="#374151" font-size="10.5">                 stats historique fournisseur (nb docs, moy, total) · liste anomalies JSON · champs_presents</text>
+  <text x="290" y="4402" fill="#374151" font-size="10.5">Contrainte : réponse UNIQUEMENT en français · 3 phrases max · ne jamais inventer · basée sur champs_presents</text>
+  <text x="290" y="4417" fill="#374151" font-size="10.5">Sortie tronquée à 1000 chars — stockée dans insights_text</text>
+  <text x="290" y="4425" fill="#6b7280" font-size="10">analyst/graph.py : ligne 153  →  from agents.extractor.tools import _call_llm</text>
+
+  <line x1="900" y1="4442" x2="900" y2="4467" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A3-5 : verdict -->
+  <rect x="250" y="4470" width="1300" height="115" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="250" y="4470" width="1300" height="28" rx="10" fill="#f59e0b"/>
+  <rect x="250" y="4488" width="1300" height="10" fill="#f59e0b"/>
+  <text x="900" y="4489" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : verdict_node  —  Niveau d'alerte global</text>
+  <text x="270" y="4514" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="325" y="4514" fill="#6b7280" font-size="11">analyst/graph.py : ligne 162  ·  Aucune API — logique Python pure</text>
+  <rect x="270" y="4522" width="1260" height="55" rx="6" fill="#fffbeb" stroke="#fde047" stroke-width="1.5"/>
+  <text x="290" y="4540" fill="#dc2626" font-size="11" font-weight="bold">alert_level = "ALERTE"</text>
+  <text x="430" y="4540" fill="#374151" font-size="11">si au moins 1 anomalie niveau ALERTE</text>
+  <text x="290" y="4555" fill="#d97706" font-size="11" font-weight="bold">alert_level = "ATTENTION"</text>
+  <text x="450" y="4555" fill="#374151" font-size="11">si au moins 1 anomalie niveau ATTENTION (et aucune ALERTE)</text>
+  <text x="290" y="4570" fill="#15803d" font-size="11" font-weight="bold">alert_level = "NORMAL"</text>
+  <text x="430" y="4570" fill="#374151" font-size="11">sinon — aucune anomalie détectée</text>
+
+  <line x1="900" y1="4585" x2="900" y2="4610" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <ellipse cx="900" cy="4630" rx="55" ry="22" fill="#b45309"/>
+  <text x="900" y="4635" text-anchor="middle" fill="white" font-size="13" font-weight="bold">END</text>
+  <rect x="430" y="4660" width="940" height="35" rx="8" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+  <text x="900" y="4674" text-anchor="middle" fill="#78350f" font-size="11" font-weight="bold">OUTPUT :</text>
+  <text x="900" y="4688" text-anchor="middle" fill="#78350f" font-size="11">analyst_report  +  alert_level (NORMAL | ATTENTION | ALERTE)</text>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!--                     AGENT 4 — LE CHATBOT                           -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <rect x="50" y="4980" width="1700" height="1090" rx="14" fill="#faf5ff" stroke="#9333ea" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="50" y="4980" width="1700" height="52" rx="14" fill="#7e22ce"/>
+  <rect x="50" y="5012" width="1700" height="20" fill="#7e22ce"/>
+  <text x="900" y="5013" text-anchor="middle" fill="white" font-size="19" font-weight="bold">AGENT 4 — LE CHATBOT (ODSINET Assistant)</text>
+  <text x="900" y="5035" text-anchor="middle" fill="#e9d5ff" font-size="12">chatbot/graph.py  ·  auditor/db.py (partagé)</text>
+
+  <rect x="300" y="5050" width="1200" height="40" rx="8" fill="#f3e8ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="900" y="5066" text-anchor="middle" fill="#581c87" font-size="11" font-weight="bold">INPUT :</text>
+  <text x="900" y="5082" text-anchor="middle" fill="#581c87" font-size="11">messages (historique LangGraph)  ·  context_entities  ·  context_audit  ·  context_analyst</text>
+
+  <ellipse cx="900" cy="5118" rx="55" ry="22" fill="#7e22ce"/>
+  <text x="900" y="5123" text-anchor="middle" fill="white" font-size="13" font-weight="bold">START</text>
+  <line x1="900" y1="5140" x2="900" y2="5165" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NODE A4-1 : understand_intent -->
+  <rect x="300" y="5168" width="1200" height="135" rx="10" fill="white" stroke="#a855f7" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="300" y="5168" width="1200" height="28" rx="10" fill="#a855f7"/>
+  <rect x="300" y="5186" width="1200" height="10" fill="#a855f7"/>
+  <text x="900" y="5187" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : understand_intent_node  —  Classification intention</text>
+  <text x="320" y="5212" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="375" y="5212" fill="#6b7280" font-size="11">chatbot/graph.py : ligne 106  ·  Aucune API — classification par mots-clés</text>
+  <rect x="320" y="5220" width="1160" height="73" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="340" y="5238" fill="#7e22ce" font-size="11" font-weight="bold">db_keywords = ["combien", "historique", "tous les", "liste", "base", "enregistrés", "documents", "fournisseurs", "total", "statistique"]</text>
+  <text x="340" y="5253" fill="#374151" font-size="10.5">intent = "base_donnees"  si un mot-clé est présent dans le dernier message (last_msg.lower())</text>
+  <text x="340" y="5268" fill="#374151" font-size="10.5">intent = "document"  sinon  (questions sur l'analyse courante)</text>
+  <text x="340" y="5283" fill="#6b7280" font-size="10">route_intent() — chatbot/graph.py : ligne 197  →  add_conditional_edges</text>
+
+  <!-- Branch arrows -->
+  <line x1="600" y1="5303" x2="480" y2="5350" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <line x1="1200" y1="5303" x2="1320" y2="5350" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <text x="400" y="5340" fill="#7e22ce" font-size="11" font-weight="bold">intent == "base_donnees"</text>
+  <text x="1180" y="5340" fill="#7e22ce" font-size="11" font-weight="bold">intent == "document"</text>
+
+  <!-- NODE A4-2 : query_db -->
+  <rect x="80" y="5355" width="630" height="120" rx="10" fill="white" stroke="#a855f7" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="80" y="5355" width="630" height="28" rx="10" fill="#c084fc"/>
+  <rect x="80" y="5373" width="630" height="10" fill="#c084fc"/>
+  <text x="395" y="5374" text-anchor="middle" fill="white" font-size="12" font-weight="bold">NŒUD : query_db_node</text>
+  <text x="100" y="5399" fill="#374151" font-size="10.5" font-weight="bold">Fichier :</text>
+  <text x="155" y="5399" fill="#6b7280" font-size="10.5">chatbot/graph.py : ligne 120</text>
+  <rect x="100" y="5407" width="595" height="60" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="115" y="5425" fill="#7e22ce" font-size="10.5" font-weight="bold">list_documents(limit=50)</text>
+  <text x="115" y="5440" fill="#6b7280" font-size="10">auditor/db.py : ligne 100  (partagé)</text>
+  <text x="115" y="5455" fill="#374151" font-size="10">SQLite → 50 derniers docs → stocké dans db_context</text>
+  <text x="115" y="5467" fill="#374151" font-size="10">Compte rendu au LLM : "X documents récents enregistrés"</text>
+
+  <!-- Converge arrow -->
+  <line x1="395" y1="5475" x2="700" y2="5545" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <line x1="1320" y1="5355" x2="1100" y2="5545" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- NODE A4-3 : generate_response -->
+  <rect x="200" y="5548" width="1400" height="330" rx="10" fill="white" stroke="#a855f7" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="200" y="5548" width="1400" height="28" rx="10" fill="#a855f7"/>
+  <rect x="200" y="5566" width="1400" height="10" fill="#a855f7"/>
+  <text x="900" y="5567" text-anchor="middle" fill="white" font-size="13" font-weight="bold">NŒUD : generate_response_node  —  Réponse conversationnelle</text>
+  <text x="220" y="5592" fill="#374151" font-size="11" font-weight="bold">Fichier :</text>
+  <text x="275" y="5592" fill="#6b7280" font-size="11">chatbot/graph.py : ligne 128</text>
+  <!-- _build_context_block -->
+  <rect x="220" y="5600" width="1360" height="65" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="240" y="5618" fill="#7e22ce" font-size="11" font-weight="bold">_build_context_block(entities, audit, analyst, db_ctx)  —  chatbot/graph.py : ligne 56</text>
+  <text x="240" y="5633" fill="#374151" font-size="10.5">Construit le bloc contexte injecté dans le system prompt :</text>
+  <text x="240" y="5648" fill="#374151" font-size="10">📄 Document (type, nb articles, champs non-null)  ·  🛒 Articles[]  ·  🛡 Audit (statut + rapport)  ·  📊 Analyse (alert + insights + anomalies)  ·  🗄 DB</text>
+  <text x="240" y="5658" fill="#6b7280" font-size="10">Limite context : entities[:2000] · audit[:1200] · analyst[:600]  — truncature pour rester dans la fenêtre LLM</text>
+  <!-- System prompt -->
+  <rect x="220" y="5673" width="1360" height="45" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="240" y="5691" fill="#5b21b6" font-size="11" font-weight="bold">System prompt ODSINET Assistant  —  chatbot/graph.py : ligne 35</text>
+  <text x="240" y="5706" fill="#374151" font-size="10">Expert documents commerciaux tunisiens · Répond en français · 2-4 phrases max · Jamais de données fictives · Notation DT 3 décimales</text>
+  <!-- LLM chain -->
+  <rect x="220" y="5726" width="1360" height="140" rx="6" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="240" y="5744" fill="#7e22ce" font-size="11" font-weight="bold">Chaîne LLM chatbot :</text>
+  <rect x="240" y="5750" width="415" height="55" rx="5" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="255" y="5768" fill="#15803d" font-size="10.5" font-weight="bold">① Groq  llama-3.3-70b-versatile</text>
+  <text x="255" y="5783" fill="#374151" font-size="10">GROQ_API_KEY  ·  graph.py:147</text>
+  <text x="255" y="5797" fill="#374151" font-size="10">temperature=0.4  ·  max_tokens=1024</text>
+  <rect x="670" y="5750" width="415" height="55" rx="5" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+  <text x="685" y="5768" fill="#a16207" font-size="10.5" font-weight="bold">② Groq  llama3-groq-70b-8192</text>
+  <text x="685" y="5783" fill="#374151" font-size="10">fallback intra-Groq  ·  graph.py:33</text>
+  <text x="685" y="5797" fill="#374151" font-size="10">tool-use-preview model</text>
+  <rect x="1100" y="5750" width="460" height="55" rx="5" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="1115" y="5768" fill="#be185d" font-size="10.5" font-weight="bold">③ Gemini  2.0-flash → 1.5-flash</text>
+  <text x="1115" y="5783" fill="#374151" font-size="10">GOOGLE_API_KEY  ·  graph.py:169</text>
+  <text x="1115" y="5797" fill="#374151" font-size="10">fallback si Groq indisponible</text>
+  <text x="240" y="5822" fill="#374151" font-size="10.5">Utilise langchain_core.messages : SystemMessage + historique HumanMessage/AIMessage</text>
+  <text x="240" y="5837" fill="#374151" font-size="10.5">Retourne : response (str) + messages mis à jour (historique LangGraph)</text>
+  <text x="240" y="5855" fill="#6b7280" font-size="10">Mémo langue : fr par défaut, suit la langue utilisateur · Si aucun LLM → message d'erreur explicite</text>
+
+  <line x1="900" y1="5878" x2="900" y2="5903" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <ellipse cx="900" cy="5923" rx="55" ry="22" fill="#7e22ce"/>
+  <text x="900" y="5928" text-anchor="middle" fill="white" font-size="13" font-weight="bold">END</text>
+  <rect x="400" y="5953" width="1000" height="35" rx="8" fill="#f3e8ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="900" y="5967" text-anchor="middle" fill="#581c87" font-size="11" font-weight="bold">OUTPUT :</text>
+  <text x="900" y="5981" text-anchor="middle" fill="#581c87" font-size="11">response (texte FR)  +  messages (historique mis à jour)</text>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!--             TABLEAU RÉCAPITULATIF  TOOLS + FICHIERS                 -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <rect x="50" y="6120" width="1700" height="1040" rx="14" fill="#1e293b" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="50" y="6120" width="1700" height="52" rx="14" fill="#0f172a"/>
+  <rect x="50" y="6152" width="1700" height="20" fill="#0f172a"/>
+  <text x="900" y="6153" text-anchor="middle" fill="white" font-size="19" font-weight="bold">Tableau récapitulatif — Tools, Fichiers &amp; APIs</text>
+  <text x="900" y="6175" text-anchor="middle" fill="#94a3b8" font-size="12">Tous les outils avec leur localisation exacte dans le code</text>
+
+  <!-- Header row -->
+  <rect x="70" y="6188" width="1660" height="32" rx="5" fill="#334155"/>
+  <text x="200" y="6209" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">Agent</text>
+  <text x="590" y="6209" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">Tool / Fonction</text>
+  <text x="1130" y="6209" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">Fichier : ligne</text>
+  <text x="1620" y="6209" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">API externe</text>
+
+  <!-- Column separators -->
+  <line x1="340" y1="6188" x2="340" y2="7130" stroke="#475569" stroke-width="1"/>
+  <line x1="840" y1="6188" x2="840" y2="7130" stroke="#475569" stroke-width="1"/>
+  <line x1="1420" y1="6188" x2="1420" y2="7130" stroke="#475569" stroke-width="1"/>
+
+  <!-- Agent 1 rows -->
+  <rect x="70" y="6220" width="1660" height="26" rx="0" fill="#1e3a8a" opacity="0.5"/>
+  <text x="200" y="6238" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="bold">Agent 1</text>
+  <text x="590" y="6238" text-anchor="middle" fill="#bfdbfe" font-size="11" font-weight="bold">EXTRACTEUR</text>
+
+  <rect x="70" y="6246" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6262" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6262" text-anchor="middle" fill="#e2e8f0" font-size="10.5">detect_file_type(file_path)</text>
+  <text x="1130" y="6262" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 261</text>
+  <text x="1620" y="6262" text-anchor="middle" fill="#fde047" font-size="10.5">pdfplumber</text>
+
+  <rect x="70" y="6268" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6284" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6284" text-anchor="middle" fill="#e2e8f0" font-size="10.5">extract_text_pdf_native(file_path)</text>
+  <text x="1130" y="6284" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 306</text>
+  <text x="1620" y="6284" text-anchor="middle" fill="#fde047" font-size="10.5">pdfplumber</text>
+
+  <rect x="70" y="6290" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6306" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6306" text-anchor="middle" fill="#e2e8f0" font-size="10.5">extract_text_vision()  →  _call_ocr_space()</text>
+  <text x="1130" y="6306" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 346 / 165</text>
+  <text x="1620" y="6306" text-anchor="middle" fill="#f87171" font-size="10.5">OCR.space REST API</text>
+
+  <rect x="70" y="6312" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6328" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6328" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_call_vision_model_fallback()</text>
+  <text x="1130" y="6328" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 219</text>
+  <text x="1620" y="6328" text-anchor="middle" fill="#f87171" font-size="10.5">Gemini SDK / Groq</text>
+
+  <rect x="70" y="6334" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6350" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6350" text-anchor="middle" fill="#e2e8f0" font-size="10.5">extract_augmented_entities()</text>
+  <text x="1130" y="6350" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 879</text>
+  <text x="1620" y="6350" text-anchor="middle" fill="#f87171" font-size="10.5">Groq qwen3-32b</text>
+
+  <rect x="70" y="6356" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6372" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6372" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_call_llm()  (Groq → HF → Gemini)</text>
+  <text x="1130" y="6372" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 49</text>
+  <text x="1620" y="6372" text-anchor="middle" fill="#f87171" font-size="10.5">Groq / HuggingFace / Gemini</text>
+
+  <rect x="70" y="6378" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6394" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6394" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_repair_truncated_json()</text>
+  <text x="1130" y="6394" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 124</text>
+  <text x="1620" y="6394" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6400" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6416" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6416" text-anchor="middle" fill="#e2e8f0" font-size="10.5">extract_visual_fields()  (Section II)</text>
+  <text x="1130" y="6416" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 661</text>
+  <text x="1620" y="6416" text-anchor="middle" fill="#f87171" font-size="10.5">Groq llama-4-scout (vision)</text>
+
+  <rect x="70" y="6422" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6438" text-anchor="middle" fill="#60a5fa" font-size="10.5">Agent 1</text>
+  <text x="590" y="6438" text-anchor="middle" fill="#e2e8f0" font-size="10.5">merge_node  +  _restore_millimes()</text>
+  <text x="1130" y="6438" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/graph.py : 108 / 134</text>
+  <text x="1620" y="6438" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <!-- Agent 2 rows -->
+  <rect x="70" y="6444" width="1660" height="26" rx="0" fill="#14532d" opacity="0.7"/>
+  <text x="200" y="6462" text-anchor="middle" fill="#86efac" font-size="11" font-weight="bold">Agent 2</text>
+  <text x="590" y="6462" text-anchor="middle" fill="#bbf7d0" font-size="11" font-weight="bold">AUDITEUR</text>
+
+  <rect x="70" y="6470" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6486" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6486" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_str() · _num() · _is_hallucinated()</text>
+  <text x="1130" y="6486" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/graph.py : 36 · 44 · 64</text>
+  <text x="1620" y="6486" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6492" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6508" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6508" text-anchor="middle" fill="#e2e8f0" font-size="10.5">check_arithmetic_lines(articles)</text>
+  <text x="1130" y="6508" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/checks.py : 35</text>
+  <text x="1620" y="6508" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6514" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6530" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6530" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_parse_tva_rate(tva_str)</text>
+  <text x="1130" y="6530" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/checks.py : 11</text>
+  <text x="1620" y="6530" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6536" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6552" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6552" text-anchor="middle" fill="#e2e8f0" font-size="10.5">validate_tva_globale(articles, montant_tva)</text>
+  <text x="1130" y="6552" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/checks.py : 87</text>
+  <text x="1620" y="6552" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6558" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6574" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6574" text-anchor="middle" fill="#e2e8f0" font-size="10.5">check_net_a_payer(ht, tva, timbre, net, fodec, htva)</text>
+  <text x="1130" y="6574" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/checks.py : 125</text>
+  <text x="1620" y="6574" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6580" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6596" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6596" text-anchor="middle" fill="#e2e8f0" font-size="10.5">check_doublon(doc_type, doc_number)</text>
+  <text x="1130" y="6596" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/db.py : 46</text>
+  <text x="1620" y="6596" text-anchor="middle" fill="#67e8f9" font-size="10.5">SQLite (documents.db)</text>
+
+  <rect x="70" y="6602" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6618" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6618" text-anchor="middle" fill="#e2e8f0" font-size="10.5">register_document(doc_type, doc_number, ...)</text>
+  <text x="1130" y="6618" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/db.py : 79</text>
+  <text x="1620" y="6618" text-anchor="middle" fill="#67e8f9" font-size="10.5">SQLite (documents.db)</text>
+
+  <rect x="70" y="6624" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6640" text-anchor="middle" fill="#4ade80" font-size="10.5">Agent 2</text>
+  <text x="590" y="6640" text-anchor="middle" fill="#e2e8f0" font-size="10.5">check_governance(complete_entities)</text>
+  <text x="1130" y="6640" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/checks.py : 179</text>
+  <text x="1620" y="6640" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <!-- Agent 3 rows -->
+  <rect x="70" y="6646" width="1660" height="26" rx="0" fill="#78350f" opacity="0.7"/>
+  <text x="200" y="6664" text-anchor="middle" fill="#fde68a" font-size="11" font-weight="bold">Agent 3</text>
+  <text x="590" y="6664" text-anchor="middle" fill="#fef9c3" font-size="11" font-weight="bold">ANALYSTE</text>
+
+  <rect x="70" y="6672" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6688" text-anchor="middle" fill="#fbbf24" font-size="10.5">Agent 3</text>
+  <text x="590" y="6688" text-anchor="middle" fill="#e2e8f0" font-size="10.5">list_documents(limit=500)</text>
+  <text x="1130" y="6688" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/db.py : 100  (partagé)</text>
+  <text x="1620" y="6688" text-anchor="middle" fill="#67e8f9" font-size="10.5">SQLite (documents.db)</text>
+
+  <rect x="70" y="6694" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6710" text-anchor="middle" fill="#fbbf24" font-size="10.5">Agent 3</text>
+  <text x="590" y="6710" text-anchor="middle" fill="#e2e8f0" font-size="10.5">compute_supplier_stats(historique, fournisseur)</text>
+  <text x="1130" y="6710" text-anchor="middle" fill="#94a3b8" font-size="10.5">analyst/checks.py : 13</text>
+  <text x="1620" y="6710" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6716" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6732" text-anchor="middle" fill="#fbbf24" font-size="10.5">Agent 3</text>
+  <text x="590" y="6732" text-anchor="middle" fill="#e2e8f0" font-size="10.5">compute_global_stats(historique)</text>
+  <text x="1130" y="6732" text-anchor="middle" fill="#94a3b8" font-size="10.5">analyst/checks.py : 35</text>
+  <text x="1620" y="6732" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6738" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6754" text-anchor="middle" fill="#fbbf24" font-size="10.5">Agent 3</text>
+  <text x="590" y="6754" text-anchor="middle" fill="#e2e8f0" font-size="10.5">detect_anomalies(montant, fournisseur, stats_f, stats_g)</text>
+  <text x="1130" y="6754" text-anchor="middle" fill="#94a3b8" font-size="10.5">analyst/checks.py : 53</text>
+  <text x="1620" y="6754" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6760" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6776" text-anchor="middle" fill="#fbbf24" font-size="10.5">Agent 3</text>
+  <text x="590" y="6776" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_call_llm()  (insights LLM — importé Agent 1)</text>
+  <text x="1130" y="6776" text-anchor="middle" fill="#94a3b8" font-size="10.5">extractor/tools.py : 49  via  analyst/graph.py:153</text>
+  <text x="1620" y="6776" text-anchor="middle" fill="#f87171" font-size="10.5">Groq / HuggingFace / Gemini</text>
+
+  <!-- Agent 4 rows -->
+  <rect x="70" y="6782" width="1660" height="26" rx="0" fill="#581c87" opacity="0.7"/>
+  <text x="200" y="6800" text-anchor="middle" fill="#e9d5ff" font-size="11" font-weight="bold">Agent 4</text>
+  <text x="590" y="6800" text-anchor="middle" fill="#f3e8ff" font-size="11" font-weight="bold">CHATBOT</text>
+
+  <rect x="70" y="6808" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6824" text-anchor="middle" fill="#c084fc" font-size="10.5">Agent 4</text>
+  <text x="590" y="6824" text-anchor="middle" fill="#e2e8f0" font-size="10.5">_build_context_block(entities, audit, analyst, db_ctx)</text>
+  <text x="1130" y="6824" text-anchor="middle" fill="#94a3b8" font-size="10.5">chatbot/graph.py : 56</text>
+  <text x="1620" y="6824" text-anchor="middle" fill="#6ee7b7" font-size="10.5">— (Python pur)</text>
+
+  <rect x="70" y="6830" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6846" text-anchor="middle" fill="#c084fc" font-size="10.5">Agent 4</text>
+  <text x="590" y="6846" text-anchor="middle" fill="#e2e8f0" font-size="10.5">list_documents(limit=50)  (contexte DB)</text>
+  <text x="1130" y="6846" text-anchor="middle" fill="#94a3b8" font-size="10.5">auditor/db.py : 100  (partagé)</text>
+  <text x="1620" y="6846" text-anchor="middle" fill="#67e8f9" font-size="10.5">SQLite (documents.db)</text>
+
+  <rect x="70" y="6852" width="1660" height="22" rx="0" fill="#0f172a"/>
+  <text x="200" y="6868" text-anchor="middle" fill="#c084fc" font-size="10.5">Agent 4</text>
+  <text x="590" y="6868" text-anchor="middle" fill="#e2e8f0" font-size="10.5">ChatOpenAI  (Groq llama-3.3-70b-versatile)</text>
+  <text x="1130" y="6868" text-anchor="middle" fill="#94a3b8" font-size="10.5">chatbot/graph.py : 147</text>
+  <text x="1620" y="6868" text-anchor="middle" fill="#f87171" font-size="10.5">Groq API</text>
+
+  <rect x="70" y="6874" width="1660" height="22" rx="0" fill="#1e293b"/>
+  <text x="200" y="6890" text-anchor="middle" fill="#c084fc" font-size="10.5">Agent 4</text>
+  <text x="590" y="6890" text-anchor="middle" fill="#e2e8f0" font-size="10.5">ChatGoogleGenerativeAI  (Gemini 2.0-flash)</text>
+  <text x="1130" y="6890" text-anchor="middle" fill="#94a3b8" font-size="10.5">chatbot/graph.py : 169</text>
+  <text x="1620" y="6890" text-anchor="middle" fill="#f87171" font-size="10.5">Google Gemini API</text>
+
+  <!-- APIs summary -->
+  <rect x="70" y="6908" width="1660" height="240" rx="8" fill="#0f172a"/>
+  <text x="900" y="6930" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="bold">Clés API requises  —  assistant/.env</text>
+
+  <rect x="100" y="6942" width="380" height="95" rx="7" fill="#1e3a8a"/>
+  <text x="290" y="6962" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="bold">OCR.space</text>
+  <text x="290" y="6977" text-anchor="middle" fill="#bfdbfe" font-size="10">OCR_SPACE_API_KEY</text>
+  <text x="290" y="6992" text-anchor="middle" fill="#dbeafe" font-size="10">25 000 req/mois gratuit</text>
+  <text x="290" y="7007" text-anchor="middle" fill="#93c5fd" font-size="10">Agent 1 : extract_text_vision</text>
+  <text x="290" y="7022" text-anchor="middle" fill="#93c5fd" font-size="10">tools.py:165</text>
+  <text x="290" y="7030" text-anchor="middle" fill="#60a5fa" font-size="9.5">ocr.space/OCRAPI</text>
+
+  <rect x="500" y="6942" width="380" height="95" rx="7" fill="#14532d"/>
+  <text x="690" y="6962" text-anchor="middle" fill="#86efac" font-size="11" font-weight="bold">Groq</text>
+  <text x="690" y="6977" text-anchor="middle" fill="#bbf7d0" font-size="10">GROQ_API_KEY</text>
+  <text x="690" y="6992" text-anchor="middle" fill="#dcfce7" font-size="10">qwen3-32b (texte) · llama-4-scout (vision)</text>
+  <text x="690" y="7007" text-anchor="middle" fill="#dcfce7" font-size="10">llama-3.3-70b (chatbot)</text>
+  <text x="690" y="7022" text-anchor="middle" fill="#86efac" font-size="10">Agents 1, 3, 4 (prioritaire)</text>
+  <text x="690" y="7030" text-anchor="middle" fill="#4ade80" font-size="9.5">console.groq.com</text>
+
+  <rect x="900" y="6942" width="380" height="95" rx="7" fill="#78350f"/>
+  <text x="1090" y="6962" text-anchor="middle" fill="#fde68a" font-size="11" font-weight="bold">HuggingFace</text>
+  <text x="1090" y="6977" text-anchor="middle" fill="#fef9c3" font-size="10">HF_API_KEY</text>
+  <text x="1090" y="6992" text-anchor="middle" fill="#fefce8" font-size="10">Qwen/Qwen2.5-7B-Instruct</text>
+  <text x="1090" y="7007" text-anchor="middle" fill="#fefce8" font-size="10">Fallback LLM texte (Groq 429)</text>
+  <text x="1090" y="7022" text-anchor="middle" fill="#fde68a" font-size="10">Agents 1, 3</text>
+  <text x="1090" y="7030" text-anchor="middle" fill="#fbbf24" font-size="9.5">huggingface.co/settings/tokens</text>
+
+  <rect x="1300" y="6942" width="400" height="95" rx="7" fill="#4c0519"/>
+  <text x="1500" y="6962" text-anchor="middle" fill="#fda4af" font-size="11" font-weight="bold">Google Gemini</text>
+  <text x="1500" y="6977" text-anchor="middle" fill="#fecdd3" font-size="10">GOOGLE_API_KEY</text>
+  <text x="1500" y="6992" text-anchor="middle" fill="#ffe4e6" font-size="10">gemini-2.0-flash · 1.5-flash · 1.5-pro</text>
+  <text x="1500" y="7007" text-anchor="middle" fill="#ffe4e6" font-size="10">Fallback texte + vision</text>
+  <text x="1500" y="7022" text-anchor="middle" fill="#fda4af" font-size="10">Agents 1, 3, 4</text>
+  <text x="1500" y="7030" text-anchor="middle" fill="#fb7185" font-size="9.5">aistudio.google.com</text>
+
+  <rect x="100" y="7050" width="780" height="85" rx="7" fill="#0c4a6e"/>
+  <text x="490" y="7070" text-anchor="middle" fill="#7dd3fc" font-size="11" font-weight="bold">SQLite Local</text>
+  <text x="490" y="7085" text-anchor="middle" fill="#bae6fd" font-size="10">assistant/data/documents.db  (aucune clé requise)</text>
+  <text x="490" y="7100" text-anchor="middle" fill="#e0f2fe" font-size="10">Partagé par Agents 2, 3, 4  ·  init_db() auto  ·  INDEX UNIQUE (doc_type, doc_number)</text>
+  <text x="490" y="7115" text-anchor="middle" fill="#bae6fd" font-size="10">db.py:20 _connect · db.py:27 init_db · db.py:46 check_doublon · db.py:79 register · db.py:100 list</text>
+  <text x="490" y="7125" text-anchor="middle" fill="#7dd3fc" font-size="9.5">Déduplication + historique comportemental + contexte chatbot</text>
+
+  <rect x="900" y="7050" width="800" height="85" rx="7" fill="#1a1a2e"/>
+  <text x="1300" y="7070" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="bold">LangSmith (Observabilité)</text>
+  <text x="1300" y="7085" text-anchor="middle" fill="#c4b5fd" font-size="10">LANGCHAIN_API_KEY  ·  LANGCHAIN_TRACING_V2=true  ·  LANGCHAIN_PROJECT=OCR-PFE-GLM</text>
+  <text x="1300" y="7100" text-anchor="middle" fill="#ddd6fe" font-size="10">Tous les agents — traces input/output/tokens de chaque nœud LangGraph</text>
+  <text x="1300" y="7115" text-anchor="middle" fill="#c4b5fd" font-size="10">smith.langchain.com  —  Tags : [agent1,extracteur] · [agent2,auditeur] · [agent3,analyste] · [agent4,chatbot]</text>
+  <text x="1300" y="7130" text-anchor="middle" fill="#a78bfa" font-size="9.5">Visualisation graphe : langgraph dev → http://localhost:2024</text>
+
+</svg>

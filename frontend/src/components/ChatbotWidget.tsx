@@ -37,9 +37,12 @@ export default function ChatbotWidget() {
 
   // Ping agent health une seule fois au montage
   useEffect(() => {
-    fetch(`${AGENT_API_URL}/health`, { signal: AbortSignal.timeout(3000) })
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 10_000);
+    fetch(`${AGENT_API_URL}/health`, { signal: controller.signal })
       .then((r) => setOnline(r.ok))
-      .catch(() => setOnline(false));
+      .catch(() => setOnline(false))
+      .finally(() => clearTimeout(id));
   }, []);
 
   const hasDocContext = !!(docContext.entities || docContext.audit || docContext.analyst);

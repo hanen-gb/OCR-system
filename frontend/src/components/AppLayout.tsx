@@ -32,8 +32,17 @@ const useNavSections = (t: (k: string) => string) => [
 
 interface AppLayoutProps { children: React.ReactNode; }
 
-/* ── Avatar initiales ── */
-function Avatar({ user }: { user: { displayName: string; avatarColor?: string } }) {
+/* ── Avatar initiales ou photo ── */
+function Avatar({ user }: { user: { displayName: string; avatarColor?: string; photo?: string } }) {
+  if (user.photo) {
+    return (
+      <img
+        src={user.photo}
+        alt={user.displayName}
+        className="w-7 h-7 rounded-full object-cover shrink-0"
+      />
+    );
+  }
   const initials = user.displayName
     .split(" ")
     .map((w) => w[0])
