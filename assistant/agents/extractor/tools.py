@@ -38,61 +38,103 @@ from langchain_core.tools import tool
 load_dotenv()
 
 # ── Modèles ───────────────────────────────────────────────────────────────────
-GROQ_BASE_URL     = "https://api.groq.com/openai/v1"
-GROQ_GEMMA_MODEL  = "qwen/qwen3-32b"  # Qwen3 32B sur Groq — excellent pour JSON structuré FR/AR
-GROQ_TEXT_MODEL   = "qwen/qwen3-32b"
-HF_MODEL          = "Qwen/Qwen2.5-7B-Instruct"
-MISTRAL_MODEL     = "mistral-small-latest"
-GEMINI_MODEL      = "gemini-2.0-flash"
-OCR_SPACE_URL     = "https://api.ocr.space/parse/image"
+GROQ_BASE_URL          = "https://api.groq.com/openai/v1"
+GROQ_TEXT_MODEL        = "qwen/qwen3-32b"                          # primary texte : Qwen3 32B
+GROQ_FALLBACK_MODEL    = "llama-3.3-70b-versatile"                 # fallback 413 : 128k ctx
+GROQ_GEMMA_MODEL       = "qwen/qwen3-32b"                          # alias conservé
+GROQ_VISION_MODEL      = "meta-llama/llama-4-scout-17b-16e-instruct"  # vision multimodal Groq
+HF_MODEL               = "Qwen/Qwen2.5-7B-Instruct"
+HF_VISION_MODEL        = "Qwen/Qwen2-VL-7B-Instruct"             # vision HF (skip si 402)
+MISTRAL_MODEL          = "mistral-small-latest"
+GEMINI_MODEL           = "gemini-2.0-flash"
+OCR_SPACE_URL          = "https://api.ocr.space/parse/image"
+
+# Limite de tronquage pour les gros documents (chars → ~10k tokens)
+_MAX_PROMPT_CHARS = 40_000
+
+
+def _truncate_prompt(prompt: str, max_chars: int = _MAX_PROMPT_CHARS) -> str:
+    """Garde le début (instructions) et la fin (schéma JSON) du prompt, coupe le milieu."""
+    if len(prompt) <= max_chars:
+        return prompt
+    keep = max_chars // 2
+    return (
+        prompt[:keep]
+        + "\n\n[... texte tronqué — document trop long ...]\n\n"
+        + prompt[-keep:]
+    )
+
 
 def _call_llm(prompt: str) -> str:
     """
-    Appelle le LLM texte.
-    Priorité : Groq → HuggingFace → Google Gemini
-    Si Groq retourne 429 (quota journalier), bascule automatiquement sur HF.
+    Chaîne de fallback LLM texte :
+      Groq llama-3.3-70b-versatile
+        → Groq llama-3.1-8b-instant (si 413, avec prompt tronqué)
+        → HuggingFace Qwen2.5-7B   (si disponible)
+        → Gemini 2.0-flash / 1.5-flash / 1.5-pro
     """
     errors = []
 
+    # ── Groq (essai primary puis fallback si 413) ─────────────────────────────
     if os.getenv("GROQ_API_KEY"):
-        try:
-            from langchain_openai import ChatOpenAI
-            from langchain_core.messages import HumanMessage as HM
-            llm = ChatOpenAI(
-                model=GROQ_TEXT_MODEL,
-                api_key=os.getenv("GROQ_API_KEY"),
-                base_url=GROQ_BASE_URL,
-                temperature=0,
-                max_tokens=8192,
-            )
-            return llm.invoke([HM(content=prompt)]).content
-        except Exception as e:
-            msg = str(e)
-            if "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
-                print(f"[LLM] Groq quota atteint — bascule sur HuggingFace")
-                errors.append(f"Groq 429: {msg[:120]}")
-            else:
-                raise  # Autre erreur Groq → propager
+        p = _truncate_prompt(prompt)   # troncature préventive pour tous les modèles Groq
+        groq_models = [
+            (GROQ_TEXT_MODEL,     p),   # Qwen3-32b primary
+            (GROQ_FALLBACK_MODEL, p),   # llama fallback si Qwen quota/413
+        ]
+        groq_quota_hit = False
+        for groq_model, p in groq_models:
+            if groq_quota_hit:
+                break
+            try:
+                from langchain_openai import ChatOpenAI
+                from langchain_core.messages import HumanMessage as HM
+                llm = ChatOpenAI(
+                    model=groq_model,
+                    api_key=os.getenv("GROQ_API_KEY"),
+                    base_url=GROQ_BASE_URL,
+                    temperature=0,
+                    max_tokens=8192,
+                )
+                result = llm.invoke([HM(content=p)]).content
+                print(f"[LLM] Groq/{groq_model} ✓")
+                return result
+            except Exception as e:
+                msg = str(e)
+                if "413" in msg or "too large" in msg.lower() or "request_too_large" in msg.lower():
+                    print(f"[LLM] Groq/{groq_model} 413 payload trop grand — modèle suivant")
+                    errors.append(f"Groq/{groq_model} 413: {msg[:120]}")
+                    # continue → essaie GROQ_FALLBACK_MODEL avec prompt tronqué
+                elif "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
+                    print(f"[LLM] Groq/{groq_model} quota atteint — bascule sur HF/Gemini")
+                    errors.append(f"Groq/{groq_model} 429: {msg[:120]}")
+                    groq_quota_hit = True   # inutile d'essayer l'autre modèle Groq
+                else:
+                    raise  # erreur inattendue → propager
 
-    if os.getenv("HF_API_KEY"):
+    # ── HuggingFace (rotation compte 1 → compte 2 si 402/429) ────────────────
+    _hf_tokens = [t for t in [os.getenv("HF_API_KEY"), os.getenv("HF_API_KEY_2")] if t]
+    for _idx, _hf_token in enumerate(_hf_tokens, 1):
         try:
             from huggingface_hub import InferenceClient
-            client = InferenceClient(token=os.getenv("HF_API_KEY"))
+            client   = InferenceClient(token=_hf_token)
             response = client.chat_completion(
                 model=HF_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=8192,
                 temperature=0.01,
             )
+            print(f"[LLM] HuggingFace compte {_idx} ✓")
             return response.choices[0].message.content
         except Exception as e:
             msg = str(e)
-            if "429" in msg or "quota" in msg.lower():
-                print(f"[LLM] HuggingFace quota atteint — bascule sur Google")
-                errors.append(f"HF 429: {msg[:120]}")
+            if "429" in msg or "quota" in msg.lower() or "402" in msg or "payment" in msg.lower():
+                print(f"[LLM] HuggingFace compte {_idx} indisponible ({msg[:60]}) — compte suivant")
+                errors.append(f"HF{_idx} skip: {msg[:120]}")
             else:
                 raise
 
+    # ── Google Gemini (dernier recours) ──────────────────────────────────────
     if os.getenv("GOOGLE_API_KEY"):
         for gemini_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
@@ -104,12 +146,12 @@ def _call_llm(prompt: str) -> str:
                     temperature=0,
                 )
                 result = llm.invoke([HM(content=prompt)]).content
-                print(f"[LLM] Modèle utilisé : {gemini_model} (Gemini fallback)")
+                print(f"[LLM] Gemini/{gemini_model} ✓")
                 return result
             except Exception as e:
                 msg = str(e)
                 errors.append(f"Gemini/{gemini_model}: {msg[:120]}")
-                print(f"[LLM] Gemini {gemini_model} → {msg[:120]}")
+                print(f"[LLM] Gemini/{gemini_model} → {msg[:120]}")
                 continue
 
     if errors:
@@ -117,7 +159,7 @@ def _call_llm(prompt: str) -> str:
 
     raise EnvironmentError(
         "\n❌ Aucune clé API LLM trouvée dans assistant/.env\n"
-        "Ajouter au moins : GROQ_API_KEY=gsk_...  ou  HF_API_KEY=hf_...\n"
+        "Ajouter au moins : GROQ_API_KEY=gsk_...  ou  GOOGLE_API_KEY=AIza...\n"
     )
 
 
@@ -258,41 +300,59 @@ def _call_ocr_space(file_path: str) -> str:
 
 def _call_vision_model_fallback(image_base64: str, mime: str, prompt: str) -> str:
     """
-    Fallback vision : Gemini (SDK natif) ou Groq.
-    Utilisé seulement si OCR_SPACE_API_KEY est absent.
+    Fallback OCR vision : Groq llama-4-scout → Gemini 2.0-flash / 1.5-flash / 1.5-pro.
+    Utilisé seulement si OCR_SPACE_API_KEY est absent ou en erreur.
     """
+    errors: list[str] = []
+
+    # ── Groq vision (llama-4-scout multimodal) ────────────────────────────────
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            from openai import OpenAI
+            client   = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url=GROQ_BASE_URL)
+            response = client.chat.completions.create(
+                model=GROQ_VISION_MODEL,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/{mime};base64,{image_base64}"}},
+                    ],
+                }],
+                max_tokens=4096,
+            )
+            print(f"[OCR-FALLBACK] Groq/{GROQ_VISION_MODEL} ✓")
+            return response.choices[0].message.content
+        except Exception as e:
+            msg = str(e)
+            errors.append(f"Groq vision: {msg[:120]}")
+            print(f"[OCR-FALLBACK] Groq/{GROQ_VISION_MODEL} → {msg[:120]}")
+
+    # ── Google Gemini vision ──────────────────────────────────────────────────
     if os.getenv("GOOGLE_API_KEY"):
-        import google.generativeai as genai
-        from PIL import Image
+        for gemini_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                import google.generativeai as genai
+                from PIL import Image as PILImage
+                genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+                gmodel      = genai.GenerativeModel(gemini_model)
+                image_bytes = base64.b64decode(image_base64)
+                image       = PILImage.open(io.BytesIO(image_bytes))
+                result      = gmodel.generate_content([prompt, image]).text
+                print(f"[OCR-FALLBACK] Gemini/{gemini_model} ✓")
+                return result
+            except Exception as e:
+                msg = str(e)
+                errors.append(f"Gemini/{gemini_model}: {msg[:120]}")
+                print(f"[OCR-FALLBACK] Gemini/{gemini_model} → {msg[:120]}")
+                continue
 
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        image_bytes = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_bytes))
-        response = model.generate_content([prompt, image])
-        return response.text
-
-    elif os.getenv("GROQ_API_KEY"):
-        from openai import OpenAI
-        client = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url=GROQ_BASE_URL)
-        response = client.chat.completions.create(
-            model=GROQ_VISION_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/{mime};base64,{image_base64}"}},
-                ],
-            }],
-        )
-        return response.choices[0].message.content
-
-    else:
-        raise EnvironmentError(
-            "\n❌ Aucune clé API vision trouvée.\n"
-            "Ajoutez OCR_SPACE_API_KEY (ocr.space/OCRAPI) dans assistant/.env"
-        )
+    raise EnvironmentError(
+        "Aucun modèle vision disponible :\n" + "\n".join(errors)
+        if errors else
+        "Aucune clé API vision. Ajoutez GOOGLE_API_KEY dans assistant/.env"
+    )
 
 
 # ── Outil 1 : detect_file_type ────────────────────────────────────────────────
@@ -450,46 +510,72 @@ def extract_text_vision(image_path: str) -> str:
 
 def _call_vision_llm(image_path: str, prompt: str) -> str:
     """
-    Envoie une image + prompt au modèle vision Qwen2-VL-7B sur HuggingFace.
-    Le modèle voit visuellement les colonnes du tableau → pas de confusion.
+    Chaîne vision : HuggingFace Qwen2-VL → Gemini 2.0-flash / 1.5-flash / 1.5-pro
+    HF est skipé si 402 (payant) ou 429 (quota).
     """
     mime_map = {
         ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png",
         ".bmp": "bmp", ".tiff": "tiff", ".tif": "tiff", ".webp": "webp",
     }
-    ext = Path(image_path).suffix.lower()
+    ext  = Path(image_path).suffix.lower()
     mime = mime_map.get(ext, "png")
 
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
 
-    if os.getenv("HF_API_KEY"):
-        from huggingface_hub import InferenceClient
-        client = InferenceClient(token=os.getenv("HF_API_KEY"))
-        response = client.chat_completion(
-            model=HF_VISION_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/{mime};base64,{b64}"}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
-            max_tokens=4096,
-        )
-        return response.choices[0].message.content
+    errors: list[str] = []
 
-    elif os.getenv("GOOGLE_API_KEY"):
-        import google.generativeai as genai
-        from PIL import Image
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        image = Image.open(io.BytesIO(base64.b64decode(b64)))
-        return model.generate_content([prompt, image]).text
+    # ── HuggingFace vision (rotation compte 1 → compte 2 si 402/429) ─────────
+    _hf_tokens = [t for t in [os.getenv("HF_API_KEY"), os.getenv("HF_API_KEY_2")] if t]
+    for _idx, _hf_token in enumerate(_hf_tokens, 1):
+        try:
+            from huggingface_hub import InferenceClient
+            client   = InferenceClient(token=_hf_token)
+            response = client.chat_completion(
+                model=HF_VISION_MODEL,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/{mime};base64,{b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+                max_tokens=4096,
+            )
+            print(f"[VISION] HuggingFace compte {_idx} ✓")
+            return response.choices[0].message.content
+        except Exception as e:
+            msg = str(e)
+            if "402" in msg or "payment" in msg.lower() or "429" in msg or "quota" in msg.lower():
+                print(f"[VISION] HuggingFace compte {_idx} indisponible ({msg[:60]}) — compte suivant")
+                errors.append(f"HF vision{_idx} skip: {msg[:120]}")
+            else:
+                raise
 
-    else:
-        raise EnvironmentError("Aucune clé API vision. Ajoutez HF_API_KEY dans assistant/.env")
+    # ── Google Gemini vision (dernier recours) ────────────────────────────────
+    if os.getenv("GOOGLE_API_KEY"):
+        for gemini_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                import google.generativeai as genai
+                from PIL import Image as PILImage
+                genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+                gmodel = genai.GenerativeModel(gemini_model)
+                image  = PILImage.open(io.BytesIO(base64.b64decode(b64)))
+                result = gmodel.generate_content([prompt, image]).text
+                print(f"[VISION] Gemini/{gemini_model} ✓")
+                return result
+            except Exception as e:
+                msg = str(e)
+                errors.append(f"Gemini vision/{gemini_model}: {msg[:120]}")
+                print(f"[VISION] Gemini/{gemini_model} → {msg[:120]}")
+                continue
+
+    raise EnvironmentError(
+        "Aucun modèle vision disponible :\n" + "\n".join(errors)
+        if errors else
+        "Aucune clé API vision trouvée. Ajoutez GOOGLE_API_KEY dans assistant/.env"
+    )
 
 
 def _build_extraction_prompt(document_type: str, base_entities: dict) -> str:
@@ -596,15 +682,6 @@ Identifie chaque ligne par son libellé :
   ❌ Ne jamais mettre le FODEC dans "remise_globale" — c'est une taxe ajoutée, pas une déduction.
 ⚠️ Jamais de calcul : copie la valeur imprimée sur la ligne correspondante.
 
-━━━ RÈGLE 5 — DEVISE (PRIORITÉ ABSOLUE) ━━━
-Lis la devise depuis le document — Ne suppose JAMAIS USD ou EUR par défaut.
-  "Dinars" / "DT" / "TND" / "المبلغ بالدينار" / "بالدينار" / "Montant (DT)" → "DT"
-  "Dirhams" / "DH" / "MAD"      → "DH"
-  "Euros" / "EUR" / "€"         → "EUR"
-  Non mentionné                  → null
-⚠️ Si le document contient "Montant (DT)" ou "المبلغ بالدينار" → devise = "DT" OBLIGATOIREMENT.
-   Ne jamais mettre "USD" sur une facture tunisienne qui mentionne explicitement DT.
-
 ━━━ RÈGLE 5bis — FACTURES DE SERVICES (télécom, électricité, eau, internet) ━━━
 Ces factures n'ont PAS de tableau d'articles ligne par ligne → articles = []
 Elles ont un RÉCAPITULATIF de lignes nommées — extraire dans les champs globaux :
@@ -630,10 +707,10 @@ L'arabe est une TRADUCTION du français — les deux colonnes disent la même ch
 Retourne UNIQUEMENT un objet JSON valide. Pas de markdown (```), pas d'explication.
 
 Pour une FACTURE :
-{{"_document_type":"facture","articles":[{{"designation":"...","quantite":...,"unite":"...","prix_unitaire":...,"total_ht":...}}],"montant_ht":...,"montant_tva":...,"tva_rate":...,"timbre_fiscal":...,"net_a_payer":...,"date_echeance":null,"mode_paiement":null,"reference_bancaire":null,"email_fournisseur":null,"email_client":null,"telephone_fournisseur":null,"telephone_client":null,"adresse_fournisseur":null,"adresse_client":null,"matricule_fiscal_fournisseur":null,"matricule_fiscal_client":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null,"devise":null,"reference_commande":null,"bon_livraison":null}}
+{{"_document_type":"facture","articles":[{{"designation":"...","quantite":...,"unite":"...","prix_unitaire":...,"total_ht":...}}],"montant_ht":...,"montant_tva":...,"tva_rate":...,"timbre_fiscal":...,"net_a_payer":...,"date_echeance":null,"mode_paiement":null,"reference_bancaire":null,"email_fournisseur":null,"email_client":null,"telephone_fournisseur":null,"telephone_client":null,"adresse_fournisseur":null,"adresse_client":null,"matricule_fiscal_fournisseur":null,"matricule_fiscal_client":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null,"reference_commande":null,"bon_livraison":null}}
 
 Pour une LETTRE DE CHANGE :
-{{"_document_type":"lettre_de_change","date_creation":null,"lieu_paiement":null,"lieu_creation":null,"banque_domiciliataire":null,"swift_bic":null,"rib_tire":null,"endossements":[],"aval_bancaire":null,"aval_details":null,"date_acceptance":null,"date_presentation":null,"telephone_tire":null,"telephone_tireur":null,"email_tire":null,"email_tireur":null,"adresse_tire":null,"adresse_tireur":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null,"devise":null}}
+{{"_document_type":"lettre_de_change","date_creation":null,"lieu_paiement":null,"lieu_creation":null,"banque_domiciliataire":null,"rib_tire":null,"endossements":[],"aval_bancaire":null,"aval_details":null,"date_acceptance":null,"date_presentation":null,"telephone_tire":null,"telephone_tireur":null,"email_tire":null,"email_tireur":null,"adresse_tire":null,"adresse_tireur":null,"tampon_present":null,"signature_presente":null,"remarques_manuscrites":null,"mentions_legales":null}}
 
 JSON :"""
 
@@ -961,17 +1038,17 @@ def extract_augmented_entities(
        matricule_fiscal_fournisseur, matricule_fiscal_client,
        tampon_present, signature_presente,
        remarques_manuscrites, mentions_legales,
-       devise, reference_commande, bon_livraison
+       reference_commande, bon_livraison
 
     ── Pour une LETTRE DE CHANGE, extrait :
        date_creation, lieu_paiement, lieu_creation,
-       banque_domiciliataire, swift_bic, rib_tire,
+       banque_domiciliataire, rib_tire,
        endossements, aval_bancaire, aval_details,
        date_acceptance, date_presentation,
        telephone_tire, telephone_tireur, email_tire, email_tireur,
        adresse_tire, adresse_tireur,
        tampon_present, signature_presente,
-       remarques_manuscrites, mentions_legales, devise
+       remarques_manuscrites, mentions_legales
     """
     try:
         base = json.loads(base_entities_json) if isinstance(base_entities_json, str) else base_entities_json
@@ -1019,7 +1096,6 @@ def extract_augmented_entities(
   "cachet_present"     : true/false,
   "signature_presente" : true/false,
   "notes_manuscrites"  : "texte griffonné à la main (ex: Payé par chèque le...)",
-  "etat_document"      : "original | duplicata | copie | endommagé",
   "logo_detecte"       : true/false,
 
   // ── III. PAIEMENT & LOGISTIQUE ────────────────────────────────────────────
@@ -1034,8 +1110,7 @@ def extract_augmented_entities(
   "adresse_client"              : null,
   "matricule_fiscal_client"     : null,
   "reference_commande"          : null,
-  "reference_bon_livraison"     : null,
-  "devise"                      : "DT / DH / EUR / USD"
+  "reference_bon_livraison"     : null
 }"""
 
     schema_lettre = """{
@@ -1044,7 +1119,6 @@ def extract_augmented_entities(
   // ── I. FINANCIER ──────────────────────────────────────────────────────────
   "montant_en_lettres" : "montant écrit en toutes lettres",
   "timbre_fiscal"      : null,
-  "devise"             : "DT / DH / EUR",
 
   // ── II. VISUEL & SÉCURITÉ ─────────────────────────────────────────────────
   "signature_tire"     : true/false,
@@ -1053,13 +1127,11 @@ def extract_augmented_entities(
   "aval_bancaire"      : true/false,
   "aval_details"       : "banque avaliste, date, conditions",
   "notes_manuscrites"  : "annotations manuscrites visibles",
-  "etat_document"      : "original | duplicata | copie",
 
   // ── III. LOGISTIQUE ───────────────────────────────────────────────────────
   "lieu_creation"         : "ville où la lettre a été créée",
   "lieu_paiement"         : "ville où elle doit être payée",
   "banque_domiciliataire" : null,
-  "swift_bic"             : null,
   "rib_tire"              : null,
   "date_acceptance"       : "DD/MM/YYYY",
   "date_presentation"     : "DD/MM/YYYY",
@@ -1262,17 +1334,7 @@ Identifie chaque ligne par son LIBELLÉ exact — ne confonds pas les lignes :
   ✅ Copie uniquement la valeur de la ligne identifiée par son libellé
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RÈGLE 5 — DEVISE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Lis la devise depuis le document (ne suppose jamais "DT" par défaut) :
-  "Dinars" / "DT" / "TND"     → "DT"
-  "Dirhams" / "DH" / "MAD"    → "DH"
-  "Euros" / "EUR" / "€"       → "EUR"
-  "Dollars" / "USD" / "$"     → "USD"
-Si aucune devise n'est mentionnée → null
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RÈGLE 6 — CHAMPS SPÉCIAUX
+RÈGLE 5 — CHAMPS SPÉCIAUX
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   "bon_livraison"     → cherche "N° BL", "BL N°", "Bon de Livraison" — prends la valeur
   "reference_commande"→ cherche "N° Commande", "BC", "Bon de commande" — pas le N° Facture

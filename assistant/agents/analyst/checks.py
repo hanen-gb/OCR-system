@@ -68,7 +68,9 @@ def detect_anomalies(
         })
 
     # ── Montant déviant vs moyenne fournisseur ───────────────────────────────
-    if montant_actuel and stats_fournisseur.get("montant_moyen"):
+    # Exiger ≥ 2 docs historiques : 1 seul doc = pas de référence fiable (évite auto-comparaison)
+    if (montant_actuel and stats_fournisseur.get("montant_moyen")
+            and stats_fournisseur.get("nb_documents", 0) >= 2):
         moyenne  = stats_fournisseur["montant_moyen"]
         ecart_r  = abs(montant_actuel - moyenne) / moyenne
         if ecart_r >= SEUIL_DEVIATION_ALERTE:

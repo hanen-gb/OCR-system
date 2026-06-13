@@ -14,10 +14,13 @@ Endpoints :
     GET  /health         — Vérifie que le serveur tourne
 """
 
+import asyncio
 import os
 import sys
 import tempfile
 import traceback
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -40,13 +43,40 @@ from agents.extractor import extractor_graph
 from agents.auditor   import auditor_graph
 from agents.analyst   import analyst_graph
 from agents.chatbot   import chatbot_graph
-from agents.auditor.db import list_documents, delete_document
+from agents.auditor.db import list_documents, delete_document, clear_sqlite_db
+from agents.auditor.daily_reporter import send_daily_report
 from database import init_db, save_document, get_documents_pg, get_facture, get_traite
+
+
+# ── Scheduler rapport quotidien 8h00 ─────────────────────────────────────────
+
+async def _daily_report_scheduler():
+    """Tâche asyncio : envoie le rapport consolidé tous les jours à 8h00."""
+    print("[DAILY] Scheduler démarré — prochain rapport à 08:00")
+    while True:
+        now    = datetime.now()
+        target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_s = (target - now).total_seconds()
+        print(f"[DAILY] Prochain rapport dans {wait_s/3600:.1f}h ({target.strftime('%d/%m/%Y à 08:00')})")
+        await asyncio.sleep(wait_s)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, send_daily_report)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    asyncio.create_task(_daily_report_scheduler())
+    yield
+
 
 app = FastAPI(
     title="Agents OCR — Pipeline Multi-Agent",
     description="Pipeline multi-agent : extraction · audit · analyse · chatbot",
     version="3.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -55,9 +85,6 @@ app.add_middleware(
     allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["*"],
 )
-
-# Initialise les tables PostgreSQL au démarrage (silencieux si DATABASE_URL absent)
-init_db()
 
 
 # ── Auth JWT ──────────────────────────────────────────────────────────────────
@@ -150,6 +177,9 @@ async def analyse_document(
         tmp_path = tmp.name
 
     try:
+        import time as _time
+        _t_start = _time.perf_counter()
+
         # ── Agent 1 : Extraction ──────────────────────────────────────────────
         result = extractor_graph.invoke(
             {
@@ -191,12 +221,15 @@ async def analyse_document(
 
         # ── PostgreSQL : sauvegarde résultats Agents 1 + 2 ──────────────────
         try:
+            _processing_time = round(_time.perf_counter() - _t_start, 2)
             save_document(
-                filename       = file.filename or "unknown",
-                entities       = analyse,
-                audit_report   = rapport_audit,
-                owner_username = _owner_from_token(authorization),
+                filename          = file.filename or "unknown",
+                entities          = analyse,
+                audit_report      = rapport_audit,
+                owner_username    = _owner_from_token(authorization),
+                processing_time_s = _processing_time,
             )
+            print(f"[API] Temps traitement : {_processing_time}s")
         except Exception as e_db:
             print(f"[API] PostgreSQL save ignoré : {e_db}")
 
@@ -352,6 +385,25 @@ async def remove_document(
         raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
     deleted = delete_document(doc_type, doc_number)
     return {"deleted": deleted, "doc_type": doc_type, "doc_number": doc_number}
+
+
+@app.delete("/admin/clear-sqlite")
+async def clear_sqlite(token_data: dict = Depends(verify_token)):
+    """Vide la table SQLite de détection de doublons (synchronisation avec PostgreSQL)."""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
+    count = clear_sqlite_db()
+    return {"status": "ok", "deleted": count, "message": f"{count} enregistrement(s) supprimé(s) de SQLite"}
+
+
+@app.post("/admin/daily-report")
+async def trigger_daily_report(token_data: dict = Depends(verify_token)):
+    """Déclenche manuellement le rapport consolidé quotidien (sans attendre 8h00)."""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
+    loop = asyncio.get_event_loop()
+    sent = await loop.run_in_executor(None, send_daily_report)
+    return {"status": "ok" if sent else "error", "sent": sent}
 
 
 # ── PostgreSQL : historique complet ──────────────────────────────────────────

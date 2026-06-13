@@ -116,3 +116,11 @@ def delete_document(doc_type: str, doc_number: str) -> bool:
             (doc_type, str(doc_number)),
         )
     return cur.rowcount > 0
+
+
+def clear_sqlite_db() -> int:
+    """Vide complètement la table SQLite de détection de doublons. Retourne le nb de lignes supprimées."""
+    init_db()
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM documents")
+    return cur.rowcount

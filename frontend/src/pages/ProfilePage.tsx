@@ -306,12 +306,6 @@ const ProfilePage = () => {
               </span>
             </div>
 
-            <p className="text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
-              {L("Membre depuis", "Member since")}&nbsp;
-              <span className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
-                {session.createdAt}
-              </span>
-            </p>
           </div>
 
           {/* Tabs */}

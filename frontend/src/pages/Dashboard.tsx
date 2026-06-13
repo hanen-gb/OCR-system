@@ -95,24 +95,48 @@ const Dashboard = () => {
   const completeDocs = history.filter((e) => e.result.entities.length >= 4).length;
   const completionRate = totalDocs > 0 ? Math.round((completeDocs / totalDocs) * 100) : 0;
 
-  // Taux de détection par entité (données réelles)
-  const ENTITY_COLORS: Record<string, string> = {
-    CLIENT:          "hsl(215 80% 58%)",
-    FOURNISSEUR:     "hsl(180 55% 45%)",
-    NUMERO_FACTURE:  "hsl(262 60% 60%)",
-    DATE_FACTURE:    "hsl(38 90% 52%)",
-    MONTANT_TTC:     "hsl(152 60% 45%)",
+  // Taux de détection par entité — calculé sur le sous-ensemble pertinent par type
+  const factures = history.filter((e) =>
+    !e.result.entities.some((en) => ["TIREUR", "TIRE", "RIB"].includes(en.label))
+  );
+  const traites = history.filter((e) =>
+    e.result.entities.some((en) => ["TIREUR", "TIRE", "RIB"].includes(en.label))
+  );
+
+  const FACTURE_LABELS: { lbl: string; color: string }[] = [
+    { lbl: "CLIENT",         color: "hsl(215 80% 58%)" },
+    { lbl: "FOURNISSEUR",    color: "hsl(180 55% 45%)" },
+    { lbl: "NUMERO_FACTURE", color: "hsl(262 60% 60%)" },
+    { lbl: "DATE_FACTURE",   color: "hsl(38 90% 52%)"  },
+    { lbl: "MONTANT_TTC",    color: "hsl(152 60% 45%)" },
+  ];
+  const TRAITE_LABELS: { lbl: string; color: string }[] = [
+    { lbl: "TIREUR",        color: "hsl(215 80% 58%)" },
+    { lbl: "TIRE",          color: "hsl(180 55% 45%)" },
+    { lbl: "RIB",           color: "hsl(262 60% 60%)" },
+    { lbl: "DATE_ECHEANCE", color: "hsl(38 90% 52%)"  },
+    { lbl: "MONTANT",       color: "hsl(152 60% 45%)" },
+  ];
+
+  const _detectionRate = (subset: typeof history, lbl: string) => {
+    if (subset.length === 0) return 0;
+    const n = subset.filter((e) =>
+      e.result.entities.some((en) => en.label === lbl && en.text && en.text !== "N/A")
+    ).length;
+    return Math.round((n / subset.length) * 100);
   };
 
-  const entityDetection = ["CLIENT", "FOURNISSEUR", "NUMERO_FACTURE", "DATE_FACTURE", "MONTANT_TTC"].map((lbl) => {
-    const detected = totalDocs > 0
-      ? history.filter((e) =>
-          e.result.entities.some((en) => en.label === lbl && en.text && en.text !== "N/A")
-        ).length
-      : 0;
-    const pct = totalDocs > 0 ? Math.round((detected / totalDocs) * 100) : 0;
-    return { name: lbl.replace("_", " "), value: pct, fill: ENTITY_COLORS[lbl] };
-  });
+  // Donut : factures si majoritaires, sinon traites, sinon mélange sur les 5 labels facture
+  const activeSubset  = factures.length >= traites.length ? factures : traites;
+  const activeLabels  = factures.length >= traites.length ? FACTURE_LABELS : TRAITE_LABELS;
+  const activeCount   = activeSubset.length;
+
+  const entityDetection = activeLabels.map(({ lbl, color }) => ({
+    name  : lbl.replace(/_/g, " "),
+    value : _detectionRate(activeSubset, lbl),
+    fill  : color,
+    count : activeCount,
+  }));
 
   const avgMs = totalDocs > 0
     ? Math.round(history.reduce((a, e) => a + e.inferenceMs, 0) / totalDocs)
@@ -137,7 +161,7 @@ const Dashboard = () => {
     {
       label: t("dash_suppliers"),
       value: uniqueSuppliers || "—",
-      sub: totalDocs > 0 ? `sur ${totalDocs} factures` : "—",
+      sub: totalDocs > 0 ? t("dash_suppliers_sub").replace("{n}", String(totalDocs)) : "—",
       icon: Building2,
       delay: 0.05,
       accent: "hsl(180 55% 45%)",
@@ -145,7 +169,7 @@ const Dashboard = () => {
     {
       label: t("dash_clients"),
       value: uniqueClients || "—",
-      sub: totalDocs > 0 ? `clients distincts` : "—",
+      sub: totalDocs > 0 ? t("dash_clients_sub") : "—",
       icon: Users,
       delay: 0.1,
       accent: "hsl(262 60% 60%)",
@@ -279,12 +303,12 @@ const Dashboard = () => {
             <table className="w-full data-table">
               <thead>
                 <tr>
-                  <th>Fichier</th>
+                  <th>{t("common_file")}</th>
                   <th>CLIENT</th>
                   <th>FOURNISSEUR</th>
-                  <th>DATE_FACTURE</th>
-                  <th>MONTANT_TTC</th>
-                  <th>Inférence</th>
+                  <th>DATE</th>
+                  <th>MONTANT</th>
+                  <th>{t("dash_inference")}</th>
                 </tr>
               </thead>
               <tbody>

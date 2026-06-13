@@ -18,7 +18,8 @@ _FR_NUMBERS = {
     "DIX": 10, "ONZE": 11, "DOUZE": 12, "TREIZE": 13, "QUATORZE": 14,
     "QUINZE": 15, "SEIZE": 16,
     "VINGT": 20, "TRENTE": 30, "QUARANTE": 40, "CINQUANTE": 50, "SOIXANTE": 60,
-    "CENT": 100, "CENTS": 100, "MILLE": 1000, "MILLION": 1000000,
+    "CENT": 100, "CENTS": 100, "GENT": 100, "GENTS": 100,  # OCR : CENTS → GENTS
+    "MILLE": 1000, "MILLION": 1000000,
     # Composites normalisés par regex avant tokenisation
     "DIX_SEPT": 17, "DIX_HUIT": 18, "DIX_NEUF": 19,
     "SOIXANTE_DIX": 70, "QUATRE_VINGT": 80, "QUATRE_VINGT_DIX": 90,
@@ -209,6 +210,17 @@ def check_arithmetic_lines(articles: list) -> list:
             calculated  = round(float(qte) * float(pu) * (1 - remise_rate), 3)
             ecart       = round(abs(calculated - float(total)), 3)
             ok          = ecart <= TOLERANCE
+
+            # Correction per-mille (unité MIL) : QTE / 1000 × PU ≈ Total
+            if not ok:
+                unite = str(art.get("unite", "") or "").upper().strip()
+                if unite in ("MIL", "M") or (float(total) > 0 and calculated > float(total) * 500):
+                    calculated_mil = round(float(qte) / 1000 * float(pu) * (1 - remise_rate), 3)
+                    ecart_mil      = round(abs(calculated_mil - float(total)), 3)
+                    if ecart_mil <= TOLERANCE:
+                        calculated = calculated_mil
+                        ecart      = ecart_mil
+                        ok         = True
         except (TypeError, ValueError) as e:
             results.append({
                 "ligne"      : i + 1,
@@ -376,6 +388,29 @@ def check_echeance_traite(date_echeance_str: str | None) -> dict:
     return {"status": "INCOMPLET", "detail": f"Format date non reconnu : '{date_echeance_str}'"}
 
 
+def check_rib_traite(rib: str | None) -> dict:
+    """
+    Vérifie que le RIB bancaire de la lettre de change contient exactement 20 chiffres.
+    Format tunisien : 2 (banque) + 3 (agence) + 13 (compte) + 2 (clé) = 20 chiffres.
+    """
+    if not rib:
+        return {"status": "INCOMPLET", "detail": "RIB absent"}
+
+    digits = _re.sub(r'\D', '', str(rib))
+    if len(digits) == 20:
+        return {
+            "status" : "OK",
+            "rib"    : rib,
+            "detail" : f"RIB valide — 20 chiffres",
+        }
+    return {
+        "status"      : "ERREUR_RIB",
+        "rib"         : rib,
+        "nb_chiffres" : len(digits),
+        "detail"      : f"RIB invalide — {len(digits)} chiffre(s) détecté(s), attendu 20",
+    }
+
+
 def check_governance(complete_entities: dict) -> dict:
     """
     Vérifie les champs de gouvernance (signatures, tampons) selon le type de document.
@@ -407,7 +442,9 @@ def check_governance(complete_entities: dict) -> dict:
         cachet    = bool(complete_entities.get("cachet_present"))
 
         manquants = []
-        if not signature: manquants.append("signature_presente")
+        # Cachet seul est suffisant (factures tunisiennes) : MANQUANT seulement si les DEUX sont absents
+        if not signature and not cachet:
+            manquants.append("signature_presente")
 
         return {
             "signature_presente": signature,

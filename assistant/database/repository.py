@@ -31,6 +31,8 @@ def _safe_float(val) -> float | None:
     if val is None:
         return None
     try:
+        if isinstance(val, str):
+            val = val.replace(" ", "").replace(" ", "").replace(",", ".")
         return float(val)
     except (TypeError, ValueError):
         return None
@@ -41,6 +43,7 @@ def save_document(
     entities: dict,
     audit_report: dict,
     owner_username: str = "anonymous",
+    processing_time_s: float | None = None,
 ) -> int | None:
     """
     Sauvegarde un document traité dans PostgreSQL.
@@ -81,11 +84,12 @@ def save_document(
                 # 1 — Insérer dans documents
                 cur.execute(
                     """
-                    INSERT INTO documents (filename, doc_type, status, audit_status, owner_username)
-                    VALUES (%s, %s::doc_type_enum, %s::doc_status_enum, %s, %s)
+                    INSERT INTO documents
+                      (filename, doc_type, status, audit_status, owner_username, processing_time_s)
+                    VALUES (%s, %s::doc_type_enum, %s::doc_status_enum, %s, %s, %s)
                     RETURNING id
                     """,
-                    (filename, doc_type_pg, workflow_status, audit_status, owner_username),
+                    (filename, doc_type_pg, workflow_status, audit_status, owner_username, processing_time_s),
                 )
                 doc_id = cur.fetchone()[0]
 
@@ -145,7 +149,14 @@ def get_documents_pg(limit: int = 50) -> list[dict]:
                 cur.execute(
                     """
                     SELECT
-                        d.id, d.filename, d.doc_type, d.status, d.audit_status, d.created_at,
+                        d.id,
+                        d.filename,
+                        d.doc_type,
+                        d.status,
+                        d.audit_status,
+                        d.owner_username,
+                        d.created_at,
+                        d.processing_time_s,
                         COALESCE(f.numero, t.numero)           AS numero,
                         COALESCE(f.fournisseur, t.tireur)      AS fournisseur,
                         COALESCE(f.montant_ttc, t.montant)     AS montant,

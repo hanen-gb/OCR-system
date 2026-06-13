@@ -146,7 +146,7 @@ const SettingsPage = () => {
                     </Button>
                   ) : (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
-                      protégé
+                      {t("set_protected")}
                     </span>
                   )}
                 </div>

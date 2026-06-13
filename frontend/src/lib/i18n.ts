@@ -53,9 +53,12 @@ const translations = {
     dash_no_analysis: "Aucune analyse — rendez-vous sur",
     dash_analyze_link: "Analyser un document",
     dash_suppliers: "Fournisseurs uniques",
+    dash_suppliers_sub: "sur {n} documents",
     dash_clients: "Clients uniques",
+    dash_clients_sub: "clients distincts",
     dash_completion: "Taux de complétion",
     dash_completion_sub: "docs avec ≥ 4 entités",
+    set_protected: "protégé",
     dash_avg_inference: "Inférence moyenne",
     dash_last_analysis: "Dernière analyse",
     dash_never: "—",
@@ -155,7 +158,7 @@ const translations = {
 
     // Analyse Contextuelle (Agent Extracteur)
     agent_section_title: "Analyse Contextuelle et Complémentaire",
-    agent_section_sub: "Extraction enrichie par l'agent IA local (LangGraph + Qwen2.5-VL)",
+    agent_section_sub: "",
     agent_loading: "Analyse contextuelle en cours…",
     agent_unavailable: "Agent non disponible — lancez le serveur local (port 8002)",
     agent_empty: "Aucune entité complémentaire détectée",
@@ -176,8 +179,8 @@ const translations = {
     doc_badge_traite:   "Lettre de Change",
 
     // Agent trigger
-    start_agents:   "Lancer l'analyse multi-agents",
-    agents_running: "Agents en cours d'analyse…",
+    start_agents:   "Lancer l'analyse complémentaire",
+    agents_running: "Analyse complémentaire en cours…",
 
     // Agent section status badges
     agent_in_progress:    "En cours",
@@ -188,28 +191,28 @@ const translations = {
     agent_file_type_label:"fichier détecté :",
     agent_waiting:        "En attente des résultats de l'agent…",
 
-    // Audit section (Agent 2)
-    audit_title:             "Rapport d'Audit — Agent 2",
-    audit_sub_facture:       "Arithmétique · TVA · Net à payer · Doublon · Gouvernance",
-    audit_sub_traite:        "Montant Lettres · Échéance · Gouvernance · Doublon",
+    // Audit section
+    audit_title:             "Rapport d'Audit",
+    audit_sub_facture:       "Arithmétique · Lettres/chiffres · Doublon · Gouvernance",
+    audit_sub_traite:        "Montant Lettres · Échéance · RIB · Gouvernance · Doublon",
     audit_kpi_arithmetic:    "Arithmétique",
-    audit_kpi_tva:           "TVA",
-    audit_kpi_net:           "Net à payer",
+    audit_kpi_lettres:       "Lettres/chiffres",
     audit_kpi_doublon:       "Doublon",
     audit_kpi_governance:    "Gouvernance",
     audit_kpi_montant_lettres: "Montant Lettres",
     audit_kpi_echeance:      "Échéance",
+    audit_kpi_rib:           "RIB Bancaire",
     audit_actor_fournisseur: "Fournisseur",
     audit_actor_tireur:      "Tireur",
     audit_incomplete_totals: "Document potentiellement incomplet — le bloc des totaux est absent de l'image",
     audit_unavailable:       "Audit non disponible — l'extraction a échoué.",
     audit_status_new:        "Nouveau",
 
-    // Analyst section (Agent 3)
-    analyst_title:       "Analyse Comportementale — Agent 3",
-    analyst_sub_traite:  "Historique Tireur · Échéance · Anomalies · Recommandations LLM",
-    analyst_sub_facture: "Historique Fournisseur · Anomalies · Recommandations LLM",
-    analyst_llm_title:   "Analyse LLM",
+    // Analyst section
+    analyst_title:       "Analyse Comportementale",
+    analyst_sub_traite:  "Historique Tireur · Échéance · Anomalies",
+    analyst_sub_facture: "Historique Fournisseur · Anomalies",
+    analyst_llm_title:   "Recommandations",
     analyst_anomalies:   "Anomalies",
     analyst_no_anomaly:  "Aucune anomalie détectée",
     analyst_stats:       "Statistiques",
@@ -242,6 +245,8 @@ const translations = {
     common_backend_active: "Backend actif",
     common_doc: "document",
     common_docs: "documents",
+    common_file: "Fichier",
+    dash_inference: "Inférence",
   },
   en: {
     // Navigation
@@ -291,8 +296,11 @@ const translations = {
     dash_no_analysis: "No analysis yet — go to",
     dash_analyze_link: "Analyze Document",
     dash_suppliers: "Unique suppliers",
+    dash_suppliers_sub: "out of {n} documents",
     dash_clients: "Unique clients",
+    dash_clients_sub: "distinct clients",
     dash_completion: "Completion rate",
+    set_protected: "protected",
     dash_completion_sub: "docs with ≥ 4 entities",
     dash_avg_inference: "Avg inference",
     dash_last_analysis: "Last analysis",
@@ -393,7 +401,7 @@ const translations = {
 
     // Analyse Contextuelle (Agent Extracteur)
     agent_section_title: "Contextual & Complementary Analysis",
-    agent_section_sub: "Enriched extraction by local AI agent (LangGraph + Qwen2.5-VL)",
+    agent_section_sub: "",
     agent_loading: "Contextual analysis in progress…",
     agent_unavailable: "Agent unavailable — start the local server (port 8002)",
     agent_empty: "No additional entities detected",
@@ -414,8 +422,8 @@ const translations = {
     doc_badge_traite:   "Bill of Exchange",
 
     // Agent trigger
-    start_agents:   "Start multi-agent analysis",
-    agents_running: "Agents analyzing…",
+    start_agents:   "Start complementary analysis",
+    agents_running: "Complementary analysis in progress…",
 
     // Agent section status badges
     agent_in_progress:     "In progress",
@@ -426,28 +434,28 @@ const translations = {
     agent_file_type_label: "file detected:",
     agent_waiting:         "Waiting for agent results…",
 
-    // Audit section (Agent 2)
-    audit_title:             "Audit Report — Agent 2",
-    audit_sub_facture:       "Arithmetic · VAT · Net payable · Duplicate · Governance",
-    audit_sub_traite:        "Amount in Words · Due Date · Governance · Duplicate",
+    // Audit section
+    audit_title:             "Audit Report",
+    audit_sub_facture:       "Arithmetic · Letters/figures · Duplicate · Governance",
+    audit_sub_traite:        "Amount in Words · Due Date · RIB · Governance · Duplicate",
     audit_kpi_arithmetic:    "Arithmetic",
-    audit_kpi_tva:           "VAT",
-    audit_kpi_net:           "Net payable",
+    audit_kpi_lettres:       "Letters/figures",
     audit_kpi_doublon:       "Duplicate",
     audit_kpi_governance:    "Governance",
     audit_kpi_montant_lettres: "Amount in Words",
     audit_kpi_echeance:      "Due Date",
+    audit_kpi_rib:           "Bank RIB",
     audit_actor_fournisseur: "Supplier",
     audit_actor_tireur:      "Drawer",
     audit_incomplete_totals: "Document potentially incomplete — the totals block is missing from the image",
     audit_unavailable:       "Audit unavailable — extraction failed.",
     audit_status_new:        "New",
 
-    // Analyst section (Agent 3)
-    analyst_title:       "Behavioral Analysis — Agent 3",
-    analyst_sub_traite:  "Drawer History · Due Date · Anomalies · LLM Recommendations",
-    analyst_sub_facture: "Supplier History · Anomalies · LLM Recommendations",
-    analyst_llm_title:   "LLM Analysis",
+    // Analyst section
+    analyst_title:       "Behavioral Analysis",
+    analyst_sub_traite:  "Drawer History · Due Date · Anomalies",
+    analyst_sub_facture: "Supplier History · Anomalies",
+    analyst_llm_title:   "Recommendations",
     analyst_anomalies:   "Anomalies",
     analyst_no_anomaly:  "No anomaly detected",
     analyst_stats:       "Statistics",
@@ -480,6 +488,8 @@ const translations = {
     common_backend_active: "Backend active",
     common_doc: "document",
     common_docs: "documents",
+    common_file: "File",
+    dash_inference: "Inference",
   },
 } as const;
 

@@ -204,6 +204,17 @@ def merge_node(state: ExtractorState) -> dict:
         )
     net_ref = complete.get("net_a_payer")
 
+    # Correction ×1000 pour net_a_payer : "24.000 DT" lu comme entier 24000
+    # Condition : lettres ne contient pas "MILLE/MILLIER" ET valeur est entier ≥ 1000
+    if (net_ref is not None and net_ref >= 1000 and net_ref == round(net_ref)
+            and lettres
+            and not any(m in lettres for m in ["MILLE", "MILLIER", "THOUSAND", "ألف"])):
+        corrected = round(net_ref / 1000, 3)
+        if corrected < 100000:
+            print(f"[PARSER] net_a_payer ×1000 corrigé : {net_ref} → {corrected} (lettres='{lettres[:60]}')")
+            complete["net_a_payer"] = corrected
+            net_ref = corrected
+
     # 2. Montants dépendants avec net_ref comme ancre plausibilité
     for field in ("montant_tva", "montant_ht", "fodec", "net_htva"):
         if complete.get(field) is not None:

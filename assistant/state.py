@@ -86,6 +86,7 @@ class AuditorState(TypedDict):
     # Traite-specific
     check_montant_traite : Optional[dict]   # Montant lettres vs chiffres
     check_echeance       : Optional[dict]   # Date d'échéance présente et valide
+    check_rib            : Optional[dict]   # RIB bancaire — 20 chiffres requis
 
     # ── Output final ──────────────────────────────────────────────────────────
     status_validite     : Optional[str]    # VALIDÉ | ERREUR_CALCUL | ERREUR_TVA | DOUBLON | ...

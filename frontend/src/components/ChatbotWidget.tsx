@@ -139,11 +139,10 @@ export default function ChatbotWidget() {
                     style={{ background: "hsl(262 60% 55% / 0.1)" }}>
                     <Sparkles className="w-5 h-5" style={{ color: "hsl(262 60% 55%)" }} />
                   </div>
-                  <p className="text-sm font-medium text-foreground mb-1">Bonjour 👋</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {hasDocContext
-                      ? "Je connais le document analysé. Posez vos questions sur les entités, l'audit ou les anomalies détectées."
-                      : "Posez vos questions sur le système OCR ODSINET, les documents traités ou naviguez vers l'analyse pour accéder au contexte complet."}
+                      ? "Posez vos questions sur les entités, l'audit ou les anomalies détectées."
+                      : "Posez vos questions sur le système OCR ODSINET ou naviguez vers l'analyse pour accéder au contexte complet."}
                   </p>
                   {hasDocContext && (
                     <div className="mt-3 flex flex-wrap gap-1.5 justify-center">

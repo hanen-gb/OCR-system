@@ -62,17 +62,19 @@ def init_db():
 
     -- Table principale : un enregistrement par fichier traité
     CREATE TABLE IF NOT EXISTS documents (
-        id             SERIAL PRIMARY KEY,
-        filename       VARCHAR(255),
-        doc_type       doc_type_enum,
-        status         doc_status_enum DEFAULT 'PENDING',
-        audit_status   VARCHAR(50),
-        owner_username VARCHAR(100) DEFAULT 'anonymous',
-        created_at     TIMESTAMP DEFAULT NOW()
+        id                 SERIAL PRIMARY KEY,
+        filename           VARCHAR(255),
+        doc_type           doc_type_enum,
+        status             doc_status_enum DEFAULT 'PENDING',
+        audit_status       VARCHAR(50),
+        owner_username     VARCHAR(100) DEFAULT 'anonymous',
+        created_at         TIMESTAMP DEFAULT NOW(),
+        processing_time_s  FLOAT
     );
 
-    -- Migration pour les BDD existantes (ignoré si la colonne existe déjà)
-    ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_username VARCHAR(100) DEFAULT 'anonymous';
+    -- Migrations pour les BDD existantes (ignorées si les colonnes existent déjà)
+    ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_username    VARCHAR(100) DEFAULT 'anonymous';
+    ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_time_s FLOAT;
 
     -- Table factures
     CREATE TABLE IF NOT EXISTS factures (
@@ -83,8 +85,11 @@ def init_db():
         fournisseur  VARCHAR(255),
         client       VARCHAR(255),
         montant_ttc  DECIMAL(12,3),
-        notes_agent  TEXT
+        notes_agent  TEXT,
+        created_at   TIMESTAMP DEFAULT NOW()
     );
+
+    ALTER TABLE factures ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
 
     -- Table traites (lettres de change)
     CREATE TABLE IF NOT EXISTS traites (
@@ -97,8 +102,11 @@ def init_db():
         rib            VARCHAR(100),
         domiciliation  VARCHAR(255),
         montant        DECIMAL(12,3),
-        notes_agent    TEXT
+        notes_agent    TEXT,
+        created_at     TIMESTAMP DEFAULT NOW()
     );
+
+    ALTER TABLE traites ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
     """
     try:
         with get_conn() as conn:

@@ -243,6 +243,12 @@ export interface AuditReport {
     jours_depassement?: number;
     detail?: string;
   };
+  check_rib?: {
+    status: string;
+    rib?: string;
+    nb_chiffres?: number;
+    detail?: string;
+  };
   // Facture-specific
   nb_articles?: number;
   nb_erreurs_calcul?: number;

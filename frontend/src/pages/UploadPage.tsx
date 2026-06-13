@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, FileImage, FileText, Loader2, CheckCircle2,
@@ -6,10 +6,10 @@ import {
   X, Clock, Brain, AlertCircle, AlertTriangle, XCircle, Shield,
   Pencil, Save, RotateCcw, Database, Camera,
   Sparkles, Copy, ChevronDown, ChevronUp, ServerOff,
-  TrendingUp, ZoomIn, ZoomOut,
+  TrendingUp, ZoomIn, ZoomOut, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { predictInvoice, analyseDocument, AGENT_API_URL, getAgentToken, TARGET_LABELS, TRAITE_LABELS, type PredictResult, type AgentAnalysisResult } from "@/lib/api";
+import { predictInvoice, analyseDocument, AGENT_API_URL, getAgentToken, fetchToken, TARGET_LABELS, TRAITE_LABELS, type PredictResult, type AgentAnalysisResult } from "@/lib/api";
 import { useChatbot } from "@/contexts/ChatbotContext";
 import { getSession, getHistoryKey } from "@/lib/auth";
 import { useApp } from "@/contexts/AppContext";
@@ -263,7 +263,18 @@ type AuditCheckData = {
   detail?: string;
   ecart?: number;
   champs_manquants?: string[];
+  first_seen?: string;
 } | null;
+
+function _fmtFirstSeen(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+      + " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
 
 function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }) {
   const { t } = useApp();
@@ -292,6 +303,11 @@ function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }
       )}
       {data.champs_manquants && data.champs_manquants.length > 0 && (
         <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{data.champs_manquants.join(", ")}</p>
+      )}
+      {data.status === "DOUBLON" && data.first_seen && (
+        <p className="text-[10px] mt-1 font-medium" style={{ color }}>
+          1er dépôt : {_fmtFirstSeen(data.first_seen)}
+        </p>
       )}
     </div>
   );
@@ -344,6 +360,7 @@ const UploadPage = () => {
   const [originalMap, setOriginalMap]   = useState<Record<string, string>>({});
   const [savedCorrections, setSavedCorrections] = useState(false);
   const [dbStatus, setDbStatus]               = useState<"idle"|"saving"|"ok"|"error">("idle");
+  const [dbError,  setDbError]                = useState<string | null>(null);
 
   // Agent Extracteur — Analyse Contextuelle et Complémentaire
   const [agentResult, setAgentResult]   = useState<AgentAnalysisResult | null>(null);
@@ -355,6 +372,20 @@ const UploadPage = () => {
 
   // Statut du serveur agent (ping /health au chargement de la page)
   const [agentStatus, setAgentStatus]   = useState<"checking" | "online" | "offline">("checking");
+
+  // Merge corrections GLM into agent contextual JSON for display
+  const mergedContextual = useMemo<Record<string, unknown>>(() => {
+    if (!agentResult?.analyse_contextuelle) return {};
+    const merged: Record<string, unknown> = { ...agentResult.analyse_contextuelle };
+    for (const [k, v] of Object.entries(editedMap)) {
+      if (v && v.trim()) {
+        const lower = k.toLowerCase();
+        merged[lower] = v.trim();
+        if (lower === "montant_ttc") merged["net_a_payer"] = v.trim();
+      }
+    }
+    return merged;
+  }, [agentResult, editedMap]);
 
   // Zoom modal image
   const [imageZoomOpen,  setImageZoomOpen]  = useState(false);
@@ -389,7 +420,7 @@ const UploadPage = () => {
   useEffect(() => {
     if (agentResult?.status === "ok") {
       setDocContext({
-        entities : agentResult.analyse_contextuelle,
+        entities : mergedContextual,
         audit    : agentResult.audit,
         analyst  : agentResult.analyse,
       });
@@ -406,7 +437,7 @@ const UploadPage = () => {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentResult, setDocContext]);
+  }, [agentResult, mergedContextual, setDocContext]);
 
 
   useEffect(() => {
@@ -548,6 +579,24 @@ const UploadPage = () => {
       .finally(() => setAgentLoading(false));
   }, [file, agentStarted, docTypeGlm, editedMap, t]);
 
+  const handleRerunAgents = useCallback(() => {
+    if (!file || agentLoading) return;
+    setAgentLoading(true);
+    setAgentError(null);
+    setAgentExpanded(true);
+
+    const docType = docTypeGlm === "traites" ? "lettre_de_change" : "facture";
+    const baseEntities: Record<string, string> = {};
+    for (const [k, v] of Object.entries(editedMap)) {
+      if (v && v.trim()) baseEntities[k] = v.trim();
+    }
+
+    analyseDocument(file, docType, baseEntities)
+      .then((res) => { setAgentResult(res); setAgentStatus("online"); })
+      .catch(() => { setAgentError(t("agent_unavailable")); setAgentStatus("offline"); })
+      .finally(() => setAgentLoading(false));
+  }, [file, agentLoading, docTypeGlm, editedMap, t]);
+
   const handleSaveCorrections = () => {
     if (!result) return;
     const updatedEntities = activeLabels
@@ -580,7 +629,13 @@ const UploadPage = () => {
     };
 
     try {
-      const token = getAgentToken();
+      // Si le token est absent (agent était hors ligne au login), on le re-demande maintenant
+      let token = getAgentToken();
+      if (!token) {
+        const session = getSession();
+        if (session) await fetchToken(session.username, session.role).catch(() => {});
+        token = getAgentToken();
+      }
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch(`${AGENT_API_URL}/save`, {
@@ -589,13 +644,18 @@ const UploadPage = () => {
         body:    JSON.stringify(payload),
         signal:  AbortSignal.timeout(10_000),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const body = await res.text().catch(() => `HTTP ${res.status}`);
+        throw new Error(body);
+      }
       setDbStatus("ok");
       setTimeout(() => setDbStatus("idle"), 4000);
     } catch (err) {
-      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[Save BDD]", msg);
       setDbStatus("error");
-      setTimeout(() => setDbStatus("idle"), 4000);
+      setDbError(msg.slice(0, 200));
+      setTimeout(() => { setDbStatus("idle"); setDbError(null); }, 6000);
     }
   };
 
@@ -986,7 +1046,7 @@ const UploadPage = () => {
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-foreground">{t("agent_section_title")}</p>
-                    <p className="text-[11px] text-muted-foreground">{t("agent_section_sub")}</p>
+                    {t("agent_section_sub") && <p className="text-[11px] text-muted-foreground">{t("agent_section_sub")}</p>}
                   </div>
                   {/* Badge statut */}
                   {agentLoading && (
@@ -998,7 +1058,7 @@ const UploadPage = () => {
                   {!agentLoading && agentResult?.status === "ok" && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/10 text-success">
                       <CheckCircle2 className="w-2.5 h-2.5" />
-                      {Object.keys(agentResult.analyse_contextuelle || {}).filter(k => agentResult.analyse_contextuelle[k] !== null).length} {t("agent_fields")}
+                      {Object.keys(mergedContextual).filter(k => mergedContextual[k] !== null).length} {t("agent_fields")}
                     </span>
                   )}
                   {!agentLoading && agentResult?.status === "error" && !agentError && (
@@ -1064,12 +1124,12 @@ const UploadPage = () => {
                     <div className="mt-4 space-y-3">
 
                       {/* Type de document détecté */}
-                      {agentResult.analyse_contextuelle?._document_type && (
+                      {mergedContextual?._document_type && (
                         <div className="flex items-center gap-2 text-xs">
                           <span className="text-muted-foreground">{t("agent_doc_type")} :</span>
                           <span className="px-2 py-0.5 rounded-full font-semibold"
                             style={{ background: "hsl(262 60% 55% / 0.12)", color: "hsl(262 60% 55%)" }}>
-                            {String(agentResult.analyse_contextuelle._document_type)}
+                            {String(mergedContextual._document_type)}
                           </span>
                         </div>
                       )}
@@ -1080,7 +1140,7 @@ const UploadPage = () => {
                           <button
                             onClick={() => {
                               navigator.clipboard.writeText(
-                                JSON.stringify(agentResult.analyse_contextuelle, null, 2)
+                                JSON.stringify(mergedContextual, null, 2)
                               );
                               setAgentCopied(true);
                               setTimeout(() => setAgentCopied(false), 2000);
@@ -1104,7 +1164,7 @@ const UploadPage = () => {
                             color: "hsl(var(--foreground))",
                           }}
                         >
-                          {JSON.stringify(agentResult.analyse_contextuelle, null, 2)}
+                          {JSON.stringify(mergedContextual, null, 2)}
                         </pre>
                       </div>
 
@@ -1120,7 +1180,7 @@ const UploadPage = () => {
               )}
             </div>
 
-            {/* ── Rapport d'Audit — Agent 2 ── */}
+            {/* ── Rapport d'Audit ── */}
             <div className="glass-card rounded-lg overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -1143,13 +1203,23 @@ const UploadPage = () => {
                     <AuditStatusBadge status={agentResult.audit.status_validite} />
                   )}
                 </div>
+                {!agentLoading && agentResult && (
+                  <button
+                    onClick={handleRerunAgents}
+                    title="Relancer l'analyse avec les corrections actuelles"
+                    className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {!agentLoading && agentResult?.audit && (
                 <div className="px-5 pb-5 border-t border-border">
                   {/* KPIs Traite */}
                   {docTypeGlm === "traites" ? (
-                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                       <AuditCheckCard
                         title={t("audit_kpi_montant_lettres")}
                         data={agentResult.audit.check_montant_traite
@@ -1173,6 +1243,17 @@ const UploadPage = () => {
                           : null}
                       />
                       <AuditCheckCard
+                        title={t("audit_kpi_rib")}
+                        data={agentResult.audit.check_rib
+                          ? {
+                              status: agentResult.audit.check_rib.status === "OK" ? "OK"
+                                    : agentResult.audit.check_rib.status === "INCOMPLET" ? "INCOMPLET"
+                                    : "ERREUR",
+                              detail: agentResult.audit.check_rib.detail,
+                            }
+                          : null}
+                      />
+                      <AuditCheckCard
                         title={t("audit_kpi_governance")}
                         data={agentResult.audit.gouvernance
                           ? { status: agentResult.audit.gouvernance.status, champs_manquants: agentResult.audit.gouvernance.champs_manquants }
@@ -1181,7 +1262,11 @@ const UploadPage = () => {
                       <AuditCheckCard
                         title={t("audit_kpi_doublon")}
                         data={agentResult.audit.alerte_doublon
-                          ? { status: agentResult.audit.alerte_doublon.status }
+                          ? {
+                              status    : agentResult.audit.alerte_doublon.status,
+                              detail    : agentResult.audit.alerte_doublon.detail,
+                              first_seen: agentResult.audit.alerte_doublon.first_seen,
+                            }
                           : null}
                       />
                     </div>
@@ -1196,21 +1281,19 @@ const UploadPage = () => {
                         } : null}
                       />
                       <AuditCheckCard
-                        title={t("audit_kpi_tva")}
-                        data={agentResult.audit.validation_tva_globale
-                          ? { status: agentResult.audit.validation_tva_globale.status, ecart: agentResult.audit.validation_tva_globale.ecart }
-                          : null}
-                      />
-                      <AuditCheckCard
-                        title={t("audit_kpi_net")}
-                        data={agentResult.audit.conformite_net_a_payer
-                          ? { status: agentResult.audit.conformite_net_a_payer.status, ecart: agentResult.audit.conformite_net_a_payer.ecart }
+                        title={t("audit_kpi_lettres")}
+                        data={agentResult.audit.check_lettres_vs_net
+                          ? { status: agentResult.audit.check_lettres_vs_net.status, ecart: agentResult.audit.check_lettres_vs_net.ecart }
                           : null}
                       />
                       <AuditCheckCard
                         title={t("audit_kpi_doublon")}
                         data={agentResult.audit.alerte_doublon
-                          ? { status: agentResult.audit.alerte_doublon.status }
+                          ? {
+                              status    : agentResult.audit.alerte_doublon.status,
+                              detail    : agentResult.audit.alerte_doublon.detail,
+                              first_seen: agentResult.audit.alerte_doublon.first_seen,
+                            }
                           : null}
                       />
                       <AuditCheckCard
@@ -1257,7 +1340,7 @@ const UploadPage = () => {
               )}
             </div>
 
-            {/* ── Analyse Comportementale — Agent 3 ── */}
+            {/* ── Analyse Comportementale ── */}
             <div className="glass-card rounded-lg overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -1280,6 +1363,16 @@ const UploadPage = () => {
                     <AnalystAlertBadge level={agentResult.analyse.alert_level} />
                   )}
                 </div>
+                {!agentLoading && agentResult && (
+                  <button
+                    onClick={handleRerunAgents}
+                    title="Relancer l'analyse avec les corrections actuelles"
+                    className="p-1.5 rounded-md hover:bg-muted transition-colors"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {!agentLoading && agentResult?.analyse && (
@@ -1424,6 +1517,12 @@ const UploadPage = () => {
                 : dbStatus === "error" ? t("db_error")
                 : t("db_save")}
               </Button>
+
+              {dbError && (
+                <span className="text-xs text-red-500 max-w-xs truncate" title={dbError}>
+                  ⚠ {dbError}
+                </span>
+              )}
 
               <Button variant="outline" size="sm" onClick={handleExport}>
                 {t("upload_export")}

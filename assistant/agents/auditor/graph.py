@@ -34,8 +34,9 @@ from agents.auditor.checks import (
     check_net_lettres,
     check_montant_traite,
     check_echeance_traite,
+    check_rib_traite,
 )
-from agents.auditor.db import check_doublon, register_document
+from agents.auditor.db import check_doublon, register_document, list_documents
 from agents.auditor.notifier import check_alert_conditions, send_alert_email, ALERT_EMAIL_TO
 
 
@@ -155,11 +156,25 @@ def route_by_doc_type(state: AuditorState) -> str:
 
 
 def montant_traite_node(state: AuditorState) -> dict:
-    """Cross-check montant en lettres vs montant numérique pour une lettre de change."""
-    entities = state.get("complete_entities") or {}
+    """Cross-check montant en lettres vs montant numérique pour une lettre de change.
+    Essaie montant_en_lettres en priorité, puis notes_manuscrites si le premier
+    est absent ou donne un résultat incohérent (OCR dégradé, ex: GENTS vs CENTS).
+    """
+    entities         = state.get("complete_entities") or {}
     montant_chiffres = state.get("montant_ttc")
-    montant_lettres  = entities.get("montant_en_lettres") or entities.get("notes_manuscrites")
-    result = check_montant_traite(montant_chiffres, montant_lettres)
+
+    lettres_primary = entities.get("montant_en_lettres")
+    lettres_fallback = entities.get("notes_manuscrites")
+
+    result = check_montant_traite(montant_chiffres, lettres_primary)
+
+    # Si le résultat primaire est ERREUR_MONTANT et qu'un fallback existe, tenter notes_manuscrites
+    if result.get("status") == "ERREUR_MONTANT" and lettres_fallback and lettres_fallback != lettres_primary:
+        result_fb = check_montant_traite(montant_chiffres, lettres_fallback)
+        if result_fb.get("status") == "OK":
+            print(f"[AUDITEUR/TRAITE] montant_en_lettres dégradé → notes_manuscrites utilisées")
+            result = result_fb
+
     print(f"[AUDITEUR/TRAITE] Montant lettres : {result.get('status')}")
     return {"check_montant_traite": result}
 
@@ -172,6 +187,16 @@ def echeance_node(state: AuditorState) -> dict:
     result   = check_echeance_traite(date_ech)
     print(f"[AUDITEUR/TRAITE] Échéance : {result.get('status')} ({date_ech})")
     return {"check_echeance": result}
+
+
+def rib_node(state: AuditorState) -> dict:
+    """Vérifie que le RIB bancaire contient exactement 20 chiffres (norme tunisienne)."""
+    base     = state.get("base_entities") or {}
+    entities = state.get("complete_entities") or {}
+    rib      = (_str(base, "RIB", "rib") or _str(entities, "rib", "rib_tire"))
+    result   = check_rib_traite(rib)
+    print(f"[AUDITEUR/TRAITE] RIB : {result.get('status')} — {result.get('detail')}")
+    return {"check_rib": result}
 
 
 def arithmetic_node(state: AuditorState) -> dict:
@@ -213,6 +238,22 @@ def tva_node(state: AuditorState) -> dict:
             except (ValueError, TypeError):
                 pass
 
+    # Détection bug ×1000 (DT millimes lus sans virgule, ex: 3672 au lieu de 3.672)
+    mht_ref = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
+    if mht_ref is None and articles:
+        try:
+            s = round(sum(float(a["total_ht_ligne"]) for a in articles if a.get("total_ht_ligne") is not None), 3)
+            if s > 0:
+                mht_ref = s
+        except (TypeError, ValueError):
+            pass
+    if montant_tva is not None and mht_ref is not None and mht_ref > 0:
+        if montant_tva > mht_ref * 0.6:
+            corrige = round(montant_tva / 1000, 3)
+            if 0.03 * mht_ref <= corrige <= 0.35 * mht_ref:
+                print(f"[AUDITEUR] Bug ×1000 détecté : montant_tva {montant_tva} → {corrige}")
+                montant_tva = corrige
+
     # Validation du taux TVA global : si aberrant, recalculer depuis montant_tva/montant_ht
     taux_global_raw = entities.get("tva_rate")
     if taux_global_raw is not None:
@@ -232,6 +273,17 @@ def tva_node(state: AuditorState) -> dict:
                         taux_global_raw = str(taux_corrige)
         except (ValueError, TypeError):
             pass
+
+    # Fallback taux : si tva_rate absent mais HT + TVA disponibles → taux implicite
+    if taux_global_raw is None and montant_tva is not None and montant_tva > 0:
+        mht_imp = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
+        if mht_imp and mht_imp > 0:
+            implied     = round(montant_tva / mht_imp * 100, 1)
+            TAUX_CONNUS = {7, 13, 19, 20, 25}
+            taux_proche = min(TAUX_CONNUS, key=lambda t: abs(t - implied))
+            if abs(implied - taux_proche) < 3:
+                taux_global_raw = str(taux_proche)
+                print(f"[AUDITEUR] tva_rate absent → taux implicite {implied}% → {taux_proche}%")
 
     # Fallback : si aucune ligne n'a de taux TVA, injecter le taux global
     taux_ligne_absents = all(a.get("tva_rate_ligne") is None for a in articles)
@@ -318,6 +370,14 @@ def net_node(state: AuditorState) -> dict:
         except (ValueError, TypeError):
             pass
 
+    # Détection bug ×1000 : TVA ne peut pas dépasser 60% du HT
+    if montant_tva_net is not None and montant_ht is not None and montant_ht > 0:
+        if montant_tva_net > montant_ht * 0.6:
+            corrige = round(montant_tva_net / 1000, 3)
+            if 0.03 * montant_ht <= corrige <= 0.35 * montant_ht:
+                print(f"[AUDITEUR/net] Bug ×1000 détecté : montant_tva {montant_tva_net} → {corrige}")
+                montant_tva_net = corrige
+
     result = check_net_a_payer(
         montant_ht    = montant_ht,
         montant_tva   = montant_tva_net,
@@ -383,6 +443,7 @@ def verdict_node(state: AuditorState) -> dict:
     if is_traite:
         montant_traite = state.get("check_montant_traite") or {}
         echeance       = state.get("check_echeance") or {}
+        rib            = state.get("check_rib") or {}
 
         if doublon.get("status") == "DOUBLON":
             status = "DOUBLON"
@@ -392,27 +453,28 @@ def verdict_node(state: AuditorState) -> dict:
             status = "ERREUR_MONTANT_LETTRES"
         elif echeance.get("status") == "DEPASSEE":
             status = "ECHEANCE_DEPASSEE"
+        elif rib.get("status") == "ERREUR_RIB":
+            status = "ERREUR_RIB"
         else:
             status = "VALIDÉ"
 
         _register_if_new()
         rapport = {
-            "status_validite"    : status,
-            "doc_type"           : doc_type,
-            "doc_number"         : state.get("doc_number"),
-            "fournisseur"        : state.get("fournisseur"),  # = tireur
+            "status_validite"     : status,
+            "doc_type"            : doc_type,
+            "doc_number"          : state.get("doc_number"),
+            "fournisseur"         : state.get("fournisseur"),  # = tireur
             "check_montant_traite": montant_traite,
-            "check_echeance"     : echeance,
-            "gouvernance"        : gouvernance,
-            "alerte_doublon"     : doublon,
+            "check_echeance"      : echeance,
+            "check_rib"           : rib,
+            "gouvernance"         : gouvernance,
+            "alerte_doublon"      : doublon,
         }
         print(f"[AUDITEUR/TRAITE] Verdict : {status}")
         return {"status_validite": status, "audit_report": rapport}
 
     # ── Chemin facture ─────────────────────────────────────────────────────────
     arithmetique = state.get("check_arithmetique") or []
-    tva          = state.get("check_tva") or {}
-    net          = state.get("check_net") or {}
     lettres      = state.get("check_lettres") or {}
     articles     = entities.get("articles") or []
 
@@ -445,10 +507,6 @@ def verdict_node(state: AuditorState) -> dict:
         status = "SIGNATURE_MANQUANTE"
     elif nb_erreurs_calcul > 0:
         status = "ERREUR_CALCUL"
-    elif tva.get("status") == "ERREUR":
-        status = "ERREUR_TVA"
-    elif net.get("status") == "ERREUR":
-        status = "ERREUR_NET_A_PAYER"
     elif lettres.get("status") == "ERREUR_MONTANT":
         status = "ERREUR_MONTANT_LETTRES"
     else:
@@ -475,8 +533,6 @@ def verdict_node(state: AuditorState) -> dict:
         "nb_erreurs_calcul"         : nb_erreurs_calcul,
         "nb_lignes_incompletes"     : sum(1 for r in arithmetique if r.get("status") == "INCOMPLET"),
         "check_arithmetique_lignes" : arithmetique,
-        "validation_tva_globale"    : tva,
-        "conformite_net_a_payer"    : net,
         "check_lettres_vs_net"      : lettres,
         "gouvernance"               : gouvernance,
         "alerte_doublon"            : doublon,
@@ -509,7 +565,18 @@ def notification_node(state: AuditorState) -> dict:
             or _str(base, "date_echeance")
         )
 
-    alerts = check_alert_conditions(montant_ttc, date_echeance)
+    # Charger historique SQLite pour comparaison montant vs moyenne du même type
+    try:
+        historique = list_documents(limit=500)
+    except Exception:
+        historique = []
+
+    alerts = check_alert_conditions(
+        montant_ttc   = montant_ttc,
+        date_echeance = date_echeance,
+        doc_type      = doc_type,
+        historique    = historique,
+    )
 
     sent = False
     if alerts:
@@ -547,14 +614,13 @@ def build_auditor_graph():
     builder = StateGraph(AuditorState)
 
     builder.add_node("prepare",        prepare_node)
-    # Facture path
+    # Facture path : arithmetic → lettres (TVA et Net supprimés du pipeline)
     builder.add_node("arithmetic",     arithmetic_node)
-    builder.add_node("tva",            tva_node)
-    builder.add_node("net",            net_node)
     builder.add_node("lettres",        lettres_node)
     # Traite path
     builder.add_node("montant_traite", montant_traite_node)
     builder.add_node("echeance",       echeance_node)
+    builder.add_node("rib",            rib_node)
     # Common
     builder.add_node("doublon",        doublon_node)
     builder.add_node("gouvernance",    gouvernance_node)
@@ -567,13 +633,12 @@ def build_auditor_graph():
         "traite" : "montant_traite",
     })
     # Facture path
-    builder.add_edge("arithmetic",     "tva")
-    builder.add_edge("tva",            "net")
-    builder.add_edge("net",            "lettres")
+    builder.add_edge("arithmetic",     "lettres")
     builder.add_edge("lettres",        "doublon")
     # Traite path
     builder.add_edge("montant_traite", "echeance")
-    builder.add_edge("echeance",       "doublon")
+    builder.add_edge("echeance",       "rib")
+    builder.add_edge("rib",            "doublon")
     # Common
     builder.add_edge("doublon",        "gouvernance")
     builder.add_edge("gouvernance",    "verdict")
