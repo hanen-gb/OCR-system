@@ -58,6 +58,18 @@ const DEFAULT_USERS: UserProfile[] = [
     lang: "en",
     theme: "dark",
   },
+  {
+    username: "demo",
+    password: "REDACTED",
+    displayName: "Hanen Goubaa",
+    email: "expediteur@gmail.com",
+    role: "admin",
+    avatarColor: AVATAR_COLORS[2],
+    bio: "Administrator account.",
+    createdAt: "2026-06-23",
+    lang: "en",
+    theme: "dark",
+  },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -184,7 +196,7 @@ export function changePassword(
 
 export function deleteUser(username: string): boolean {
   // Ne pas supprimer les admins par défaut
-  if (username === "admin" || username === "user") return false;
+  if (username === "admin" || username === "user" || username === "demo") return false;
   const users = loadUsers().filter((u) => u.username !== username);
   saveUsers(users);
   return true;

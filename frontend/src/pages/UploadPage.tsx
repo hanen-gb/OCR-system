@@ -9,7 +9,7 @@ import {
   TrendingUp, ZoomIn, ZoomOut, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { predictInvoice, analyseDocument, AGENT_API_URL, getAgentToken, fetchToken, TARGET_LABELS, TRAITE_LABELS, type PredictResult, type AgentAnalysisResult } from "@/lib/api";
+import { predictInvoice, analyseDocument, reauditEntities, reanalyzeEntities, AGENT_API_URL, getAgentToken, fetchToken, TARGET_LABELS, TRAITE_LABELS, type PredictResult, type AgentAnalysisResult, type Entity } from "@/lib/api";
 import { useChatbot } from "@/contexts/ChatbotContext";
 import { getSession, getHistoryKey } from "@/lib/auth";
 import { useApp } from "@/contexts/AppContext";
@@ -70,6 +70,22 @@ interface HistoryEntry {
   inferenceMs: number;
   corrected?: boolean;
 }
+
+// Mapping clés analyse_contextuelle → labels Entity (majuscules/minuscules)
+const CTX_KEY_MAP: [string, string][] = [
+  ["TIREUR", "TIREUR"],         ["tireur", "TIREUR"],
+  ["TIRE", "TIRE"],             ["tire", "TIRE"],
+  ["RIB", "RIB"],               ["rib_tire", "RIB"],        ["rib", "RIB"],
+  ["DATE_ECHEANCE", "DATE_ECHEANCE"], ["date_echeance", "DATE_ECHEANCE"],
+  ["MONTANT", "MONTANT"],       ["montant", "MONTANT"],
+  ["NUMERO_TRAITE", "NUMERO_TRAITE"], ["numero_traite", "NUMERO_TRAITE"],
+  ["DOMICILIATION", "DOMICILIATION"], ["banque_domiciliataire", "DOMICILIATION"],
+  ["FOURNISSEUR", "FOURNISSEUR"],     ["fournisseur", "FOURNISSEUR"],
+  ["CLIENT", "CLIENT"],               ["client", "CLIENT"],
+  ["NUMERO_FACTURE", "NUMERO_FACTURE"], ["numero_facture", "NUMERO_FACTURE"],
+  ["DATE_FACTURE", "DATE_FACTURE"],   ["date_facture", "DATE_FACTURE"],
+  ["MONTANT_TTC", "MONTANT_TTC"],     ["montant_ttc", "MONTANT_TTC"],
+];
 
 function saveToHistory(entry: HistoryEntry) {
   const session = getSession();
@@ -373,19 +389,80 @@ const UploadPage = () => {
   // Statut du serveur agent (ping /health au chargement de la page)
   const [agentStatus, setAgentStatus]   = useState<"checking" | "online" | "offline">("checking");
 
+  // Édition manuelle de l'analyse contextuelle (HITL) — corrections propagées
+  // à l'Auditeur (Agent 2) et à l'Analyste (Agent 3) sans relancer l'extraction
+  const [contextualEditing, setContextualEditing]   = useState(false);
+  const [contextualDraft, setContextualDraft]       = useState("");
+  const [contextualOverride, setContextualOverride] = useState<Record<string, unknown> | null>(null);
+  const [contextualError, setContextualError]       = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing]               = useState(false);
+
   // Merge corrections GLM into agent contextual JSON for display
   const mergedContextual = useMemo<Record<string, unknown>>(() => {
-    if (!agentResult?.analyse_contextuelle) return {};
-    const merged: Record<string, unknown> = { ...agentResult.analyse_contextuelle };
-    for (const [k, v] of Object.entries(editedMap)) {
-      if (v && v.trim()) {
-        const lower = k.toLowerCase();
-        merged[lower] = v.trim();
-        if (lower === "montant_ttc") merged["net_a_payer"] = v.trim();
+    const base = contextualOverride ?? agentResult?.analyse_contextuelle;
+    if (!base) return {};
+    const merged: Record<string, unknown> = { ...base };
+    if (!contextualOverride) {
+      for (const [k, v] of Object.entries(editedMap)) {
+        if (v && v.trim()) {
+          const lower = k.toLowerCase();
+          merged[lower] = v.trim();
+          if (lower === "montant_ttc") merged["net_a_payer"] = v.trim();
+        }
       }
     }
     return merged;
-  }, [agentResult, editedMap]);
+  }, [agentResult, editedMap, contextualOverride]);
+
+  const handleEditContextual = () => {
+    setContextualDraft(JSON.stringify(mergedContextual, null, 2));
+    setContextualError(null);
+    setContextualEditing(true);
+  };
+
+  const handleCancelContextual = () => {
+    setContextualEditing(false);
+    setContextualError(null);
+  };
+
+  const handleSaveContextual = async () => {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(contextualDraft);
+    } catch (e) {
+      setContextualError("JSON invalide : " + (e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    setContextualError(null);
+    setContextualOverride(parsed);
+    setContextualEditing(false);
+
+    // Propage la correction aux Agents 2 (Audit) et 3 (Analyse) — sans
+    // relancer l'extraction (Agent 1), juste un recalcul sur le JSON corrigé.
+    setReanalyzing(true);
+    try {
+      const baseEntities: Record<string, string> = {};
+      for (const [k, v] of Object.entries(editedMap)) {
+        if (v && v.trim()) baseEntities[k] = v.trim();
+      }
+      const auditRes = await reauditEntities(parsed, baseEntities);
+      const analystRes = await reanalyzeEntities(parsed, (auditRes.audit as unknown as Record<string, unknown>) ?? {});
+      setAgentResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              analyse_contextuelle: parsed,
+              audit  : auditRes.audit ?? prev.audit,
+              analyse: analystRes.analyse ?? prev.analyse,
+            }
+          : prev,
+      );
+    } catch {
+      setContextualError("Échec de la re-vérification — vérifiez que le backend agent tourne.");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
 
   // Zoom modal image
   const [imageZoomOpen,  setImageZoomOpen]  = useState(false);
@@ -438,6 +515,32 @@ const UploadPage = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentResult, mergedContextual, setDocContext]);
+
+  // Si le GLM n'a extrait aucune entité, enrichir l'entrée historique avec les données de l'agent
+  useEffect(() => {
+    if (agentResult?.status !== "ok" || !historyId || !result) return;
+    if (result.entities.length > 0) return; // GLM a déjà des entités, rien à faire
+
+    const ctx = (agentResult.analyse_contextuelle || {}) as Record<string, unknown>;
+    const seen = new Set<string>();
+    const agentEntities: Entity[] = [];
+    for (const [ctxKey, label] of CTX_KEY_MAP) {
+      if (seen.has(label)) continue;
+      const val = ctx[ctxKey];
+      if (val && typeof val === "string" && val.trim() && val !== "N/A" && val.toLowerCase() !== "null") {
+        agentEntities.push({ label, text: val.trim(), box: null, words: [] });
+        seen.add(label);
+      }
+    }
+    if (agentEntities.length === 0) return;
+
+    const docT = ctx._document_type as string | undefined;
+    const detectedType: "factures" | "traites" =
+      docT && (docT.includes("lettre") || docT.includes("traite") || docT.includes("change"))
+        ? "traites"
+        : "factures";
+    updateHistoryEntry(historyId, { ...result, entities: agentEntities, doc_type: detectedType });
+  }, [agentResult, historyId, result]);
 
 
   useEffect(() => {
@@ -1134,38 +1237,94 @@ const UploadPage = () => {
                         </div>
                       )}
 
-                      {/* JSON formaté + bouton copier */}
+                      {/* JSON formaté + boutons copier / éditer */}
                       <div className="relative">
-                        <div className="absolute top-2 right-2 z-10">
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(
-                                JSON.stringify(mergedContextual, null, 2)
-                              );
-                              setAgentCopied(true);
-                              setTimeout(() => setAgentCopied(false), 2000);
-                            }}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+                        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+                          {!contextualEditing ? (
+                            <>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(
+                                    JSON.stringify(mergedContextual, null, 2)
+                                  );
+                                  setAgentCopied(true);
+                                  setTimeout(() => setAgentCopied(false), 2000);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+                                style={{
+                                  background: agentCopied ? "hsl(152 60% 40% / 0.15)" : "hsl(var(--muted))",
+                                  color: agentCopied ? "hsl(152 60% 40%)" : "hsl(var(--muted-foreground))",
+                                }}
+                              >
+                                <Copy className="w-2.5 h-2.5" />
+                                {agentCopied ? t("agent_copied") : t("agent_copy")}
+                              </button>
+                              <button
+                                onClick={handleEditContextual}
+                                title={t("agent_edit_json")}
+                                className="flex items-center justify-center w-6 h-6 rounded-md transition-colors"
+                                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+                              >
+                                <Pencil className="w-2.5 h-2.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={handleSaveContextual}
+                                disabled={reanalyzing}
+                                title={t("agent_save_json")}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors disabled:opacity-50"
+                                style={{ background: "hsl(152 60% 40% / 0.15)", color: "hsl(152 60% 40%)" }}
+                              >
+                                {reanalyzing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
+                                {t("agent_save_json")}
+                              </button>
+                              <button
+                                onClick={handleCancelContextual}
+                                disabled={reanalyzing}
+                                title={t("agent_cancel_json")}
+                                className="flex items-center justify-center w-6 h-6 rounded-md transition-colors disabled:opacity-50"
+                                style={{ background: "hsl(0 72% 50% / 0.1)", color: "hsl(0 72% 50%)" }}
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+
+                        {!contextualEditing ? (
+                          <pre
+                            className="text-xs font-mono rounded-lg p-4 pr-20 overflow-auto leading-relaxed"
                             style={{
-                              background: agentCopied ? "hsl(152 60% 40% / 0.15)" : "hsl(var(--muted))",
-                              color: agentCopied ? "hsl(152 60% 40%)" : "hsl(var(--muted-foreground))",
+                              background: "hsl(262 60% 55% / 0.04)",
+                              border: "1px solid hsl(262 60% 55% / 0.15)",
+                              maxHeight: 420,
+                              color: "hsl(var(--foreground))",
                             }}
                           >
-                            <Copy className="w-2.5 h-2.5" />
-                            {agentCopied ? t("agent_copied") : t("agent_copy")}
-                          </button>
-                        </div>
-                        <pre
-                          className="text-xs font-mono rounded-lg p-4 pr-20 overflow-auto leading-relaxed"
-                          style={{
-                            background: "hsl(262 60% 55% / 0.04)",
-                            border: "1px solid hsl(262 60% 55% / 0.15)",
-                            maxHeight: 420,
-                            color: "hsl(var(--foreground))",
-                          }}
-                        >
-                          {JSON.stringify(mergedContextual, null, 2)}
-                        </pre>
+                            {JSON.stringify(mergedContextual, null, 2)}
+                          </pre>
+                        ) : (
+                          <textarea
+                            value={contextualDraft}
+                            onChange={(e) => setContextualDraft(e.target.value)}
+                            className="w-full text-xs font-mono rounded-lg p-4 pt-9 leading-relaxed resize-y"
+                            style={{
+                              background: "hsl(262 60% 55% / 0.04)",
+                              border: "1px solid hsl(262 60% 55% / 0.3)",
+                              minHeight: 420,
+                              color: "hsl(var(--foreground))",
+                            }}
+                            spellCheck={false}
+                          />
+                        )}
+
+                        {contextualError && (
+                          <p className="text-[11px] mt-1.5" style={{ color: "hsl(0 72% 50%)" }}>
+                            {contextualError}
+                          </p>
+                        )}
                       </div>
 
                       {/* File type badge */}

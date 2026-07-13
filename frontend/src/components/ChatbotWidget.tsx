@@ -141,7 +141,7 @@ export default function ChatbotWidget() {
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {hasDocContext
-                      ? "Posez vos questions sur les entités, l'audit ou les anomalies détectées."
+                      ? "Posez vos questions sur les entités, l'audit ou les remarques détectées."
                       : "Posez vos questions sur le système OCR ODSINET ou naviguez vers l'analyse pour accéder au contexte complet."}
                   </p>
                   {hasDocContext && (

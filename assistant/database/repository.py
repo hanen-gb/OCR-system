@@ -9,6 +9,7 @@ notes_agent stocke le JSON complet des agents (entités + rapport d'audit).
 """
 
 import json
+import re
 from datetime import datetime
 from psycopg2.extras import RealDictCursor
 
@@ -16,10 +17,11 @@ from .connection import get_conn
 
 
 def _safe_date(val: str | None):
-    """Tente de parser une date chaîne vers un objet date Python, ou None."""
+    """Tente de parser une date chaine vers un objet date Python, ou None."""
     if not val:
         return None
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"):
+    # %d-%m-%y couvre les dates type "12-11-22" (ex: factures NETLINK)
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"):
         try:
             return datetime.strptime(val.strip(), fmt).date()
         except ValueError:
@@ -28,11 +30,29 @@ def _safe_date(val: str | None):
 
 
 def _safe_float(val) -> float | None:
+    """
+    Convertit une chaine montant en float, en gerant les deux conventions :
+      - "4 488,00"   (espace milliers, virgule decimale - convention FR/EU)
+      - "4,498.800"  (virgule milliers, point decimale - convention US/mixte
+                       vue sur certaines factures, ex: NETLINK)
+    Regle : le separateur le plus a DROITE est le decimal, l'autre (s'il existe)
+    est un separateur de milliers a supprimer.
+    """
     if val is None:
         return None
     try:
         if isinstance(val, str):
-            val = val.replace(" ", "").replace(" ", "").replace(",", ".")
+            v = re.sub(r"\s", "", val.strip())
+            last_comma = v.rfind(",")
+            last_dot   = v.rfind(".")
+            if last_comma != -1 and last_dot != -1:
+                if last_comma > last_dot:
+                    v = v.replace(".", "").replace(",", ".")
+                else:
+                    v = v.replace(",", "")
+            elif last_comma != -1:
+                v = v.replace(",", ".")
+            val = v
         return float(val)
     except (TypeError, ValueError):
         return None
@@ -171,7 +191,15 @@ def get_documents_pg(limit: int = 50) -> list[dict]:
                     (limit,),
                 )
                 rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        # psycopg2 renvoie les colonnes DECIMAL en decimal.Decimal — on convertit en
+        # float pour que les comparaisons/calculs en aval (Agent 2, Agent 3) fonctionnent.
+        docs = []
+        for r in rows:
+            d = dict(r)
+            if d.get("montant") is not None:
+                d["montant"] = float(d["montant"])
+            docs.append(d)
+        return docs
     except Exception as e:
         print(f"[DB] get_documents_pg erreur : {e}")
         return []
@@ -187,6 +215,8 @@ def get_facture(doc_id: int) -> dict | None:
         if not row:
             return None
         result = dict(row)
+        if result.get("montant_ttc") is not None:
+            result["montant_ttc"] = float(result["montant_ttc"])
         try:
             result["notes_agent"] = json.loads(result["notes_agent"])
         except (TypeError, ValueError):
@@ -195,6 +225,101 @@ def get_facture(doc_id: int) -> dict | None:
     except Exception as e:
         print(f"[DB] get_facture erreur : {e}")
         return None
+
+
+def _is_traite_doc_type(doc_type: str | None) -> bool:
+    d = (doc_type or "").lower()
+    return "lettre" in d or "change" in d or "traite" in d
+
+
+def check_doublon_pg(doc_type: str | None, doc_number: str | None) -> dict:
+    """
+    Vérifie si un document avec ce numéro existe déjà en base PostgreSQL
+    (remplace l'ancienne détection de doublons SQLite).
+
+    Retourne :
+      {"status": "NOUVEAU",  "doc_number": ...}
+      {"status": "DOUBLON",  "doc_number": ..., "first_seen": ..., "fournisseur": ..., "montant": ..., "detail": ...}
+      {"status": "INCONNU",  "detail": "..."}
+    """
+    if not doc_number:
+        return {"status": "INCONNU", "detail": "Numéro de document absent"}
+
+    is_traite = _is_traite_doc_type(doc_type)
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if is_traite:
+                    cur.execute(
+                        """
+                        SELECT d.created_at, t.tireur AS fournisseur, t.montant AS montant
+                        FROM traites t
+                        JOIN documents d ON d.id = t.doc_id
+                        WHERE t.numero = %s
+                        ORDER BY d.created_at ASC
+                        LIMIT 1
+                        """,
+                        (str(doc_number),),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT d.created_at, f.fournisseur AS fournisseur, f.montant_ttc AS montant
+                        FROM factures f
+                        JOIN documents d ON d.id = f.doc_id
+                        WHERE f.numero = %s
+                        ORDER BY d.created_at ASC
+                        LIMIT 1
+                        """,
+                        (str(doc_number),),
+                    )
+                row = cur.fetchone()
+    except Exception as e:
+        print(f"[DB] check_doublon_pg erreur : {e}")
+        return {"status": "INCONNU", "detail": str(e)}
+
+    if row:
+        created = row.get("created_at")
+        return {
+            "status"     : "DOUBLON",
+            "doc_number" : doc_number,
+            "first_seen" : created.isoformat() if created else None,
+            "fournisseur": row.get("fournisseur"),
+            "montant"    : float(row["montant"]) if row.get("montant") is not None else None,
+            "detail"     : f"Déjà traité le {created.strftime('%d/%m/%Y') if created else '?'}",
+        }
+    return {"status": "NOUVEAU", "doc_number": doc_number}
+
+
+def delete_document_pg(doc_type: str | None, doc_number: str) -> bool:
+    """Supprime un document de PostgreSQL (cascade vers factures/traites)."""
+    is_traite = _is_traite_doc_type(doc_type)
+    table     = "traites" if is_traite else "factures"
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"DELETE FROM documents WHERE id IN (SELECT doc_id FROM {table} WHERE numero = %s)",
+                    (str(doc_number),),
+                )
+                deleted = cur.rowcount > 0
+        return deleted
+    except Exception as e:
+        print(f"[DB] delete_document_pg erreur : {e}")
+        return False
+
+
+def clear_documents_pg() -> int:
+    """Vide entièrement documents/factures/traites (cascade). Retourne le nb de documents supprimés."""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM documents")
+                count = cur.rowcount
+        return count
+    except Exception as e:
+        print(f"[DB] clear_documents_pg erreur : {e}")
+        return 0
 
 
 def get_traite(doc_id: int) -> dict | None:
@@ -207,6 +332,8 @@ def get_traite(doc_id: int) -> dict | None:
         if not row:
             return None
         result = dict(row)
+        if result.get("montant") is not None:
+            result["montant"] = float(result["montant"])
         try:
             result["notes_agent"] = json.loads(result["notes_agent"])
         except (TypeError, ValueError):

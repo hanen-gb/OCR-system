@@ -2,7 +2,7 @@
 Sous-graphe LangGraph — Agent 3 : L'Analyste
 
 Flux séquentiel :
-    START → load_history
+    START → load_history       ← PostgreSQL : 500 derniers documents
               ↓
            compute_stats   ← Stats historiques (fournisseur + global)
               ↓
@@ -17,11 +17,12 @@ Flux séquentiel :
 
 import json
 import os
+import re
 
 from langgraph.graph import StateGraph, START, END
 
 from state import AnalystState
-from agents.auditor.db import list_documents
+from database import get_documents_pg
 from agents.analyst.checks import (
     compute_supplier_stats,
     compute_global_stats,
@@ -55,7 +56,10 @@ def _resolve_montant(audit: dict, entities: dict) -> float | None:
             if v is not None:
                 try:
                     if isinstance(v, str):
-                        v = v.strip().replace(" ", "")
+                        # \s couvre l'espace ASCII, l'espace insécable ( ) et
+                        # l'espace fine insécable ( ) que les LLM utilisent comme
+                        # séparateur de milliers (ex: "2 000.000" avec  ).
+                        v = re.sub(r"\s", "", v.strip())
                         if "," in v and "." not in v:
                             v = v.replace(",", ".")
                         elif "," in v and "." in v:
@@ -69,8 +73,8 @@ def _resolve_montant(audit: dict, entities: dict) -> float | None:
 # ── Nœuds ─────────────────────────────────────────────────────────────────────
 
 def load_history_node(state: AnalystState) -> dict:
-    """Charge les 500 derniers documents depuis SQLite."""
-    historique = list_documents(limit=500)
+    """Charge les 500 derniers documents depuis PostgreSQL."""
+    historique = get_documents_pg(limit=500)
     print(f"[ANALYSTE] Historique chargé : {len(historique)} documents")
     return {"historique": historique}
 
@@ -114,8 +118,34 @@ def detect_anomalies_node(state: AnalystState) -> dict:
     return {"anomalies": anomalies}
 
 
+def _call_llm_analyst(prompt: str) -> str:
+    """
+    Chaîne LLM dédiée à l'Agent 3 : OpenAI gpt-4o-mini en premier (clé OPENAI_API_KEY),
+    puis repli sur la chaîne standard de l'Extracteur (Groq → HF → Gemini) si OpenAI
+    est indisponible ou échoue. L'Extracteur (Agent 1), lui, continue d'utiliser
+    uniquement des modèles gratuits/peu coûteux via _call_llm() — jamais OpenAI.
+    """
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage as HM
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                api_key=os.getenv("OPENAI_API_KEY"),
+                temperature=0,
+            )
+            result = llm.invoke([HM(content=prompt)]).content
+            print("[LLM] OpenAI/gpt-4o-mini ✓")
+            return result
+        except Exception as e:
+            print(f"[LLM] OpenAI échec ({str(e)[:120]}) — bascule sur Groq/HF/Gemini")
+
+    from agents.extractor.tools import _call_llm
+    return _call_llm(prompt)
+
+
 def generate_insights_node(state: AnalystState) -> dict:
-    """Génère un commentaire analytique via LLM (Groq → HF → Gemini)."""
+    """Génère un commentaire analytique via LLM (OpenAI → Groq → HF → Gemini)."""
     audit     = state.get("audit_report") or {}
     anomalies = state.get("anomalies") or []
     stats_f   = state.get("stats_fournisseur") or {}
@@ -143,7 +173,7 @@ def generate_insights_node(state: AnalystState) -> dict:
             f"Historique tireur : {stats_f.get('nb_documents', 0)} traites enregistrées, "
             f"moyenne {stats_f.get('montant_moyen')} DT\n"
             f"Base globale : {stats_g.get('nb_documents_total', 0)} documents\n"
-            f"Anomalies : {json.dumps(anomalies, ensure_ascii=False)}"
+            f"Remarques : {json.dumps(anomalies, ensure_ascii=False)}"
         )
         champs_presents = [k for k in ("doc_number", "fournisseur") if audit.get(k) is not None]
 
@@ -156,9 +186,11 @@ Voici le contexte d'une lettre de change traitée par le système OCR multi-agen
 RÈGLES ABSOLUES :
 1. Les champs suivants sont PRÉSENTS : {champs_presents} → Ne dis JAMAIS qu'ils sont absents.
 2. Commente l'état de l'échéance, le montant, et l'historique du tireur.
-3. Si l'échéance est DEPASSEE, c'est une anomalie critique à signaler.
-4. Si aucune anomalie et statut VALIDÉ → confirme que la traite est conforme.
-5. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement.
+3. N'utilise JAMAIS le mot "anomalie" — dis "remarque" ou "point d'attention".
+4. Si l'échéance est DEPASSEE, c'est un point d'attention important à signaler.
+5. Un nouveau tireur (jamais vu avant) n'est PAS un problème, juste une remarque informative.
+6. Si aucune remarque et statut VALIDÉ → confirme que la traite est conforme.
+7. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement.
 
 Commentaire en français :"""
     else:
@@ -169,7 +201,7 @@ Commentaire en français :"""
             f"moyenne {stats_f.get('montant_moyen')} DT, total {stats_f.get('montant_total')} DT\n"
             f"Base globale : {stats_g.get('nb_documents_total', 0)} documents, "
             f"{stats_g.get('nb_fournisseurs', 0)} fournisseurs\n"
-            f"Anomalies : {json.dumps(anomalies, ensure_ascii=False)}"
+            f"Remarques : {json.dumps(anomalies, ensure_ascii=False)}"
         )
         champs_presents  = [k for k in ("doc_number", "fournisseur", "montant_ttc") if audit.get(k) is not None]
         champs_presents += ["numero_facture"] if entities.get("numero_facture") else []
@@ -184,15 +216,16 @@ Voici le contexte d'un document traité par le système OCR multi-agent :
 RÈGLES ABSOLUES avant de rédiger :
 1. Les champs suivants sont PRÉSENTS dans le JSON : {champs_presents}
    → Ne dis JAMAIS qu'ils sont absents ou manquants.
-2. Commente UNIQUEMENT les anomalies listées et l'historique fournisseur.
-3. Si aucune anomalie n'est détectée et que le statut est VALIDÉ → dis simplement que le document est conforme.
-4. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement, sans inventer d'informations.
+2. N'utilise JAMAIS le mot "anomalie" — dis "remarque" ou "point d'attention".
+3. Commente UNIQUEMENT les remarques listées et l'historique fournisseur.
+4. Un nouveau fournisseur (jamais vu avant) n'est PAS un problème, juste une remarque informative.
+5. Si aucune remarque n'est détectée et que le statut est VALIDÉ → dis simplement que le document est conforme.
+6. Sois factuel, 3 phrases maximum en FRANÇAIS uniquement, sans inventer d'informations.
 
 Commentaire en français :"""
 
     try:
-        from agents.extractor.tools import _call_llm
-        insights = _call_llm(prompt).strip()[:1000]
+        insights = _call_llm_analyst(prompt).strip()[:1000]
     except Exception as e:
         insights = f"Analyse indisponible — {str(e)[:120]}"
 

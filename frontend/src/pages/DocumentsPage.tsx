@@ -122,18 +122,19 @@ const DocumentsPage = () => {
   const session = getSession();
   const isAdmin = session?.role === "admin";
 
-  const handleClearSqlite = async () => {
-    if (!confirm("Vider la base SQLite (détection doublons) ? Cette action est irréversible.")) return;
+  const handleClearDocuments = async () => {
+    if (!confirm("Vider la base PostgreSQL (documents + factures + traites) ? Cette action est irréversible.")) return;
     setClearingDb(true);
     try {
       const token = localStorage.getItem("odsinet_agent_token");
-      const res = await fetch(`${AGENT_API_URL}/admin/clear-sqlite`, {
+      const res = await fetch(`${AGENT_API_URL}/admin/clear-documents`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: AbortSignal.timeout(5_000),
       });
       const data = await res.json();
-      alert(data.message ?? "SQLite vidé");
+      alert(data.message ?? "Base PostgreSQL vidée");
+      fetchDbDocs();
     } catch (err) {
       alert("Erreur : " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -236,13 +237,13 @@ const DocumentsPage = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleClearSqlite}
+                onClick={handleClearDocuments}
                 disabled={clearingDb}
                 style={{ color: "hsl(0 72% 50%)", borderColor: "hsl(0 72% 50% / 0.4)" }}
-                title="Vide la base SQLite de détection de doublons (synchroniser avec PostgreSQL)"
+                title="Vide entièrement la base PostgreSQL (documents, factures, traites)"
               >
                 <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                {clearingDb ? "Nettoyage…" : "Vider SQLite"}
+                {clearingDb ? "Nettoyage…" : "Vider la base"}
               </Button>
             )}
           </div>

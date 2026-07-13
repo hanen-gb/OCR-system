@@ -118,9 +118,9 @@ def understand_intent_node(state: ChatbotState) -> dict:
 
 
 def query_db_node(state: ChatbotState) -> dict:
-    """Charge des données complémentaires depuis la DB si nécessaire."""
-    from agents.auditor.db import list_documents
-    db_ctx = list_documents(limit=50)
+    """Charge des données complémentaires depuis PostgreSQL si nécessaire."""
+    from database import get_documents_pg
+    db_ctx = get_documents_pg(limit=50)
     print(f"[CHATBOT] DB requêtée : {len(db_ctx)} documents")
     return {"db_context": db_ctx}
 

@@ -7,7 +7,7 @@ et produit un rapport d'audit avec 5 vérifications :
   1. check_arithmetique_lignes  — QTE × PU_HT ≈ Total_HT par ligne
   2. validation_tva_globale     — Somme TVA lignes ≈ montant_tva extrait
   3. conformite_net_a_payer     — HT + TVA + Timbre ≈ Net à payer (TTC)
-  4. alerte_doublon             — N° déjà vu en base SQLite ?
+  4. alerte_doublon             — N° déjà vu en base PostgreSQL ?
   5. gouvernance                — Signature / Tampon présents ?
 
   → status_validite : "VALIDÉ" | "DOUBLON" | "SIGNATURE_MANQUANTE" |
@@ -20,7 +20,7 @@ from agents.auditor.checks import (
     check_net_a_payer,
     check_governance,
 )
-from agents.auditor.db import check_doublon, register_document
+from database import check_doublon_pg
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ def audit_document(
     timbre       = _get_num(entities, "timbre_fiscal")
 
     # ── 1. Détection de doublon ───────────────────────────────────────────────
-    alerte_doublon = check_doublon(doc_type, doc_number)
+    alerte_doublon = check_doublon_pg(doc_type, doc_number)
 
     # ── 2. Vérification arithmétique ligne par ligne ──────────────────────────
     check_lignes    = check_arithmetic_lines(articles)
@@ -122,9 +122,8 @@ def audit_document(
     else:
         status = "VALIDÉ"
 
-    # ── Enregistrement en base si nouveau ────────────────────────────────────
-    if alerte_doublon["status"] == "NOUVEAU" and doc_number:
-        register_document(doc_type, doc_number, fournisseur, montant_ttc, date_doc)
+    # NB : l'enregistrement persistant se fait dans PostgreSQL via save_document()
+    # (assistant/api/main.py), appelé après l'audit.
 
     # ── Rapport final ─────────────────────────────────────────────────────────
     return {

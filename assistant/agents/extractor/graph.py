@@ -128,12 +128,13 @@ def merge_node(state: ExtractorState) -> dict:
         print(f"[GRAPH] Articles → texte ({len(text_articles)} lignes) — vision vide")
 
     # ── Couche 2 : normalisation intelligente des montants (parse_amount) ──────────
-    # Gère 5 cas de confusion fréquents dans les documents tunisiens :
+    # Gère 6 cas de confusion fréquents dans les documents tunisiens :
     #   1. Espaces milliers + point décimal  : "1 320.600" → 1320.600
     #   2. Format européen virgule+point     : "1.320,600" → 1320.600
-    #   3. Double point tunisien             : "1.320.600" → 1320.600
-    #   4. Virgule seule comme décimal       : "1320,600"  → 1320.600
-    #   5. Entier sans décimal (OCR)         :  4750       → 4.750
+    #   3. Format US/mixte point décimal     : "4,498.800" → 4498.800
+    #   4. Double point tunisien             : "1.320.600" → 1320.600
+    #   5. Virgule seule comme décimal       : "1320,600"  → 1320.600
+    #   6. Entier sans décimal (OCR)         :  4750       → 4.750
     # IMPORTANT — had_decimal :
     #   Si la chaine originale contient deja un separateur (virgule ou point),
     #   le montant est fourni avec decimales EXPLICITES (ex: "20 754,000" = 20 754 DT).
@@ -152,7 +153,12 @@ def merge_node(state: ExtractorState) -> dict:
                 s = s.replace(sp, '')
             had_decimal = (',' in s) or ('.' in s)
             if ',' in s and '.' in s:
-                s = s.replace('.', '').replace(',', '.'  )
+                # Le separateur le plus a DROITE est le decimal, l'autre = milliers.
+                # "1.320,600" (EU, virgule decimale) vs "4,498.800" (US/mixte, point decimal)
+                if s.rfind(',') > s.rfind('.'):
+                    s = s.replace('.', '').replace(',', '.'  )
+                else:
+                    s = s.replace(',', ''  )
             elif ',' in s:
                 s = s.replace(',', '.'  )
             elif s.count('.') == 2:

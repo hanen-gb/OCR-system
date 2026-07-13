@@ -1,6 +1,6 @@
 """
 Rapport consolidé quotidien — envoyé chaque matin à 8h00.
-Récapitule tous les documents présents en base SQLite.
+Récapitule tous les documents présents en base PostgreSQL.
 """
 
 import smtplib
@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from agents.auditor.db import list_documents
+from database import get_documents_pg
 from agents.auditor.notifier import (
     GMAIL_SENDER, GMAIL_APP_PASSWORD, ALERT_EMAIL_TO, _is_traite_type,
 )
@@ -27,19 +27,15 @@ def send_daily_report() -> bool:
         print("[DAILY] Email désactivé (GMAIL_SENDER/GMAIL_APP_PASSWORD manquants dans .env)")
         return False
 
-    docs = list_documents(limit=500)
+    docs = get_documents_pg(limit=500)
     maintenant = datetime.now()
     hier = maintenant - timedelta(hours=24)
 
     docs_recent = []
     for d in docs:
-        fs = d.get("first_seen") or ""
-        try:
-            dt = datetime.fromisoformat(fs.replace("Z", "+00:00").replace("+00:00", ""))
-            if dt >= hier:
-                docs_recent.append(d)
-        except (ValueError, TypeError):
-            pass
+        created = d.get("created_at")
+        if created and created.replace(tzinfo=None) >= hier:
+            docs_recent.append(d)
 
     nb_factures = sum(1 for d in docs if not _is_traite_type(d.get("doc_type")))
     nb_traites  = sum(1 for d in docs if _is_traite_type(d.get("doc_type")))
@@ -52,7 +48,7 @@ def send_daily_report() -> bool:
     lignes = ""
     for d in docs_recent[:25]:
         t   = ("TRAITE" if _is_traite_type(d.get("doc_type")) else "FACTURE")
-        num = (d.get("doc_number") or "—")[:18]
+        num = (d.get("numero") or "—")[:18]
         fou = (d.get("fournisseur") or "—")[:22]
         mnt = _fmt_montant(d.get("montant"))
         lignes += f"  • {t:7s} | N° {num:18s} | {fou:22s} | {mnt}\n"

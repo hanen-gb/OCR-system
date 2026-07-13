@@ -59,7 +59,7 @@ class AuditorState(TypedDict):
             → arithmetic    (QTE × PU ≈ total_ht ligne par ligne)
             → tva           (Σ TVA lignes ≈ montant_tva global)
             → net           (HT + TVA + timbre ≈ net_a_payer)
-            → doublon       (SQLite : N° déjà vu ?)
+            → doublon       (PostgreSQL : N° déjà vu ?)
             → gouvernance   (signatures, tampons)
             → verdict       (status_validite final)
             → audit_report
@@ -103,7 +103,7 @@ class AnalystState(TypedDict):
 
     Flux :
         complete_entities + audit_report
-            → load_history     (500 derniers docs SQLite)
+            → load_history     (500 derniers docs PostgreSQL)
             → compute_stats    (stats fournisseur + globales)
             → detect_anomalies (montant déviant, nouveau fournisseur, montant élevé)
             → generate_insights (LLM 3-4 phrases)

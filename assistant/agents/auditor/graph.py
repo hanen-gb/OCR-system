@@ -12,7 +12,7 @@ Flux séquentiel :
               ↓
            lettres       ← Couche 3 : net_a_payer_lettres vs net_a_payer numérique
               ↓
-           doublon       ← SQLite : N° déjà vu en base ?
+           doublon       ← PostgreSQL : N° déjà vu en base ?
               ↓
           gouvernance    ← Signatures, tampons, aval
               ↓
@@ -22,6 +22,8 @@ Flux séquentiel :
               ↓
              END
 """
+
+import re
 
 from langgraph.graph import StateGraph, START, END
 
@@ -36,7 +38,7 @@ from agents.auditor.checks import (
     check_echeance_traite,
     check_rib_traite,
 )
-from agents.auditor.db import check_doublon, register_document, list_documents
+from database import check_doublon_pg, get_documents_pg
 from agents.auditor.notifier import check_alert_conditions, send_alert_email, ALERT_EMAIL_TO
 
 
@@ -57,7 +59,7 @@ def _num(d: dict, *keys) -> float | None:
             try:
                 # Gère virgule décimale et espaces milliers ("135,660" → 135.660)
                 if isinstance(v, str):
-                    v = v.strip().replace(" ", "").replace(" ", "")
+                    v = re.sub(r"\s", "", v.strip())
                     # Point + 3 chiffres = millimes tunisiens → garder (135.660)
                     # Virgule = séparateur décimal → convertir en point
                     if "," in v and "." not in v:
@@ -406,8 +408,8 @@ def lettres_node(state: AuditorState) -> dict:
 
 
 def doublon_node(state: AuditorState) -> dict:
-    """Consulte la base SQLite pour détecter un doublon."""
-    result = check_doublon(state.get("doc_type") or "facture", state.get("doc_number"))
+    """Consulte PostgreSQL pour détecter un doublon."""
+    result = check_doublon_pg(state.get("doc_type") or "facture", state.get("doc_number"))
     print(f"[AUDITEUR] Doublon : {result.get('status')} ({state.get('doc_number')})")
     return {"check_doublon": result}
 
@@ -428,16 +430,8 @@ def verdict_node(state: AuditorState) -> dict:
     doc_type    = state.get("doc_type") or ""
     is_traite   = "lettre" in doc_type or "change" in doc_type or "traite" in doc_type
 
-    # Enregistrement commun
-    def _register_if_new():
-        if doublon.get("status") == "NOUVEAU" and state.get("doc_number"):
-            register_document(
-                doc_type    = doc_type or "facture",
-                doc_number  = state["doc_number"],
-                fournisseur = state.get("fournisseur"),
-                montant     = state.get("montant_ttc"),
-                date_doc    = state.get("date_doc"),
-            )
+    # NB : l'enregistrement persistant du document se fait dans PostgreSQL via
+    # save_document() (assistant/api/main.py), appelé juste après ce graphe.
 
     # ── Chemin traite ──────────────────────────────────────────────────────────
     if is_traite:
@@ -458,7 +452,6 @@ def verdict_node(state: AuditorState) -> dict:
         else:
             status = "VALIDÉ"
 
-        _register_if_new()
         rapport = {
             "status_validite"     : status,
             "doc_type"            : doc_type,
@@ -512,8 +505,6 @@ def verdict_node(state: AuditorState) -> dict:
     else:
         status = "VALIDÉ"
 
-    _register_if_new()
-
     document_incomplet = (
         _num(entities, "montant_ht")  is None and
         _num(entities, "montant_tva") is None and
@@ -549,12 +540,14 @@ def notification_node(state: AuditorState) -> dict:
     Conditions déclenchantes :
       1. Montant TTC > ALERT_THRESHOLD_DT  (défaut 5 000 DT)
       2. Date d'échéance dans ≤ ALERT_DEADLINE_DAYS jours (défaut 7) ou dépassée
+      3. Nouveau document ET montant TTC > ALERT_NOUVEAU_MONTANT_DT (défaut 4 000 DT)
     """
     entities    = state.get("complete_entities") or {}
     base        = state.get("base_entities") or {}
     montant_ttc = state.get("montant_ttc")
     doc_type    = state.get("doc_type")
     is_traite   = "lettre" in (doc_type or "")
+    is_nouveau  = (state.get("check_doublon") or {}).get("status") == "NOUVEAU"
 
     # Récupère la date d'échéance selon le type de document
     if is_traite:
@@ -565,9 +558,9 @@ def notification_node(state: AuditorState) -> dict:
             or _str(base, "date_echeance")
         )
 
-    # Charger historique SQLite pour comparaison montant vs moyenne du même type
+    # Charger historique PostgreSQL pour comparaison montant vs moyenne du même type
     try:
-        historique = list_documents(limit=500)
+        historique = get_documents_pg(limit=500)
     except Exception:
         historique = []
 
@@ -576,6 +569,7 @@ def notification_node(state: AuditorState) -> dict:
         date_echeance = date_echeance,
         doc_type      = doc_type,
         historique    = historique,
+        is_nouveau    = is_nouveau,
     )
 
     sent = False

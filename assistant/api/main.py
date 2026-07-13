@@ -9,8 +9,8 @@ Endpoints :
     POST /analyse        — Agent 1 + Agent 2 + Agent 3 enchaînés
     POST /audit          — Agent 2 seul (JSON body : complete_entities + base_entities)
     POST /chat           — Agent 4 Chatbot
-    GET  /documents      — Liste des documents enregistrés en base (déduplication)
-    DELETE /documents/{type}/{number} — Supprime un document de la base
+    GET  /pg/documents   — Liste des documents enregistrés en base PostgreSQL
+    DELETE /documents/{type}/{number} — Supprime un document de PostgreSQL (admin)
     GET  /health         — Vérifie que le serveur tourne
 """
 
@@ -43,9 +43,11 @@ from agents.extractor import extractor_graph
 from agents.auditor   import auditor_graph
 from agents.analyst   import analyst_graph
 from agents.chatbot   import chatbot_graph
-from agents.auditor.db import list_documents, delete_document, clear_sqlite_db
 from agents.auditor.daily_reporter import send_daily_report
-from database import init_db, save_document, get_documents_pg, get_facture, get_traite
+from database import (
+    init_db, save_document, get_documents_pg, get_facture, get_traite,
+    delete_document_pg, clear_documents_pg,
+)
 
 
 # ── Scheduler rapport quotidien 8h00 ─────────────────────────────────────────
@@ -309,6 +311,35 @@ async def audit_only(req: AuditRequest):
         )
 
 
+# ── Agent 3 seul (analyse comportementale d'un JSON existant) ─────────────────
+
+class AnalystRequest(BaseModel):
+    complete_entities: dict
+    audit_report     : dict = {}
+
+
+@app.post("/analyst")
+async def analyst_only(req: AnalystRequest):
+    """
+    Ré-analyse directement un JSON d'entités (sans ré-extraction).
+    Appelé après une correction manuelle de l'analyse contextuelle (HITL),
+    en général juste après un appel à /audit pour propager les corrections.
+    """
+    try:
+        analyst_state = analyst_graph.invoke({
+            "complete_entities": req.complete_entities,
+            "audit_report"     : req.audit_report,
+        })
+        rapport = analyst_state.get("analyst_report") or {}
+        return {"analyse": rapport, "status": "ok"}
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"analyse": None, "status": "error", "error": str(e)},
+        )
+
+
 # ── Agent 4 : Chatbot ────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
@@ -366,13 +397,7 @@ async def chat(req: ChatRequest):
         )
 
 
-# ── Admin : liste et suppression des documents enregistrés ────────────────────
-
-@app.get("/documents")
-async def get_documents(limit: int = 50):
-    """Retourne les derniers documents enregistrés en base (déduplication)."""
-    return {"documents": list_documents(limit), "status": "ok"}
-
+# ── Admin : suppression des documents enregistrés (PostgreSQL) ────────────────
 
 @app.delete("/documents/{doc_type}/{doc_number}")
 async def remove_document(
@@ -380,20 +405,20 @@ async def remove_document(
     doc_number: str,
     token_data: dict = Depends(verify_token),
 ):
-    """Supprime un document de la base SQLite — réservé aux administrateurs (role: admin)."""
+    """Supprime un document de PostgreSQL — réservé aux administrateurs (role: admin)."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
-    deleted = delete_document(doc_type, doc_number)
+    deleted = delete_document_pg(doc_type, doc_number)
     return {"deleted": deleted, "doc_type": doc_type, "doc_number": doc_number}
 
 
-@app.delete("/admin/clear-sqlite")
-async def clear_sqlite(token_data: dict = Depends(verify_token)):
-    """Vide la table SQLite de détection de doublons (synchronisation avec PostgreSQL)."""
+@app.delete("/admin/clear-documents")
+async def clear_documents(token_data: dict = Depends(verify_token)):
+    """Vide entièrement la base PostgreSQL (documents + factures + traites)."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
-    count = clear_sqlite_db()
-    return {"status": "ok", "deleted": count, "message": f"{count} enregistrement(s) supprimé(s) de SQLite"}
+    count = clear_documents_pg()
+    return {"status": "ok", "deleted": count, "message": f"{count} document(s) supprimé(s) de PostgreSQL"}
 
 
 @app.post("/admin/daily-report")

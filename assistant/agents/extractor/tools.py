@@ -72,6 +72,7 @@ def _call_llm(prompt: str) -> str:
         → Groq llama-3.1-8b-instant (si 413, avec prompt tronqué)
         → HuggingFace Qwen2.5-7B   (si disponible)
         → Gemini 2.0-flash / 1.5-flash / 1.5-pro
+        → OpenAI gpt-4o-mini (tout dernier recours, si OPENAI_API_KEY défini)
     """
     errors = []
 
@@ -109,6 +110,10 @@ def _call_llm(prompt: str) -> str:
                     print(f"[LLM] Groq/{groq_model} quota atteint — bascule sur HF/Gemini")
                     errors.append(f"Groq/{groq_model} 429: {msg[:120]}")
                     groq_quota_hit = True   # inutile d'essayer l'autre modèle Groq
+                elif "403" in msg or "401" in msg or "forbidden" in msg.lower() or "unauthorized" in msg.lower() or "invalid api key" in msg.lower():
+                    print(f"[LLM] Groq/{groq_model} clé invalide/refusée — bascule sur HF/Gemini")
+                    errors.append(f"Groq/{groq_model} auth: {msg[:120]}")
+                    groq_quota_hit = True   # clé invalide pour tous les modèles Groq, inutile de réessayer
                 else:
                     raise  # erreur inattendue → propager
 
@@ -128,13 +133,14 @@ def _call_llm(prompt: str) -> str:
             return response.choices[0].message.content
         except Exception as e:
             msg = str(e)
-            if "429" in msg or "quota" in msg.lower() or "402" in msg or "payment" in msg.lower():
+            if ("429" in msg or "quota" in msg.lower() or "402" in msg or "payment" in msg.lower()
+                    or "403" in msg or "forbidden" in msg.lower() or "401" in msg or "unauthorized" in msg.lower()):
                 print(f"[LLM] HuggingFace compte {_idx} indisponible ({msg[:60]}) — compte suivant")
                 errors.append(f"HF{_idx} skip: {msg[:120]}")
             else:
                 raise
 
-    # ── Google Gemini (dernier recours) ──────────────────────────────────────
+    # ── Google Gemini ──────────────────────────────────────────────────────────
     if os.getenv("GOOGLE_API_KEY"):
         for gemini_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
@@ -153,6 +159,25 @@ def _call_llm(prompt: str) -> str:
                 errors.append(f"Gemini/{gemini_model}: {msg[:120]}")
                 print(f"[LLM] Gemini/{gemini_model} → {msg[:120]}")
                 continue
+
+    # ── OpenAI gpt-4o-mini (tout dernier recours — uniquement si Groq+HF+Gemini
+    #    ont tous échoué ; évite de dépendre d'OpenAI en temps normal) ──────────
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage as HM
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                api_key=os.getenv("OPENAI_API_KEY"),
+                temperature=0,
+            )
+            result = llm.invoke([HM(content=prompt)]).content
+            print("[LLM] OpenAI/gpt-4o-mini ✓ (dernier recours)")
+            return result
+        except Exception as e:
+            msg = str(e)
+            errors.append(f"OpenAI/gpt-4o-mini: {msg[:120]}")
+            print(f"[LLM] OpenAI/gpt-4o-mini → {msg[:120]}")
 
     if errors:
         raise EnvironmentError(f"Tous les LLM ont échoué :\n" + "\n".join(errors))
@@ -880,6 +905,20 @@ RÈGLE FONDAMENTALE — LIS CHAQUE COLONNE INDÉPENDAMMENT :
   - Un N° série/lot (ex: 200237-2) dans une colonne ≠ quantité — la quantité est dans la colonne étiquetée QTE
   - Si le document est une facture de SERVICES (téléphone, internet, électricité, eau) sans tableau d'articles → articles = []
 
+⚠️ PIÈGE CRITIQUE — NE JAMAIS DÉCALER LES LIGNES :
+  Quand une désignation est longue ou tient sur 2 lignes, les valeurs QTE/P.U.H.T/%RM/TVA/Montant HT
+  de CETTE MÊME ligne sont souvent imprimées plus bas, alignées avec le BAS du bloc texte, pas avec le haut.
+  → Repère d'abord la ligne horizontale (ou l'espacement) qui sépare chaque article, puis associe à
+    CHAQUE désignation les valeurs numériques comprises dans SA bande horizontale — jamais celles de
+    l'article suivant ou précédent.
+  → Avant de répondre, vérifie pour chaque ligne : quantite × prix_unitaire_ht × (1 - remise/100) ≈ total_ht_ligne.
+    Si l'écart est grand, c'est probablement un décalage de ligne → relis le tableau ligne par ligne.
+
+⚠️ COLONNE REMISE (%RM) — NE JAMAIS L'OMETTRE :
+  Si une colonne "%RM", "Remise", "Rem." ou "%" existe entre P.U.H.T et TVA, lis sa valeur pour CHAQUE ligne
+  et mets-la dans "remise_pct_ligne" (nombre, ex: 10 pour 10%, 0 si la cellule est vide ou affiche "0").
+  Ne mets "remise_pct_ligne": null QUE si la colonne n'existe pas du tout dans le tableau.
+
 NOTATION MILLIMES TUNISIENS :
   - Prix avec POINT + 3 chiffres = millimes (4.987 = 4 DT 987 millimes → garder 4.987, jamais 4987)
   - Quantité entière : 8 → 8, jamais 8.000"""
@@ -927,11 +966,30 @@ JSON :"""
 
     content = ""
     last_error = ""
+    _tmp_pdf_image: str | None = None
 
     try:
         import base64
 
         ext = Path(image_path).suffix.lower()
+
+        # PDF (natif ou scanné) : extract_visual_fields n'a aucun lecteur PDF natif —
+        # on convertit la 1ère page en PNG, comme extract_text_vision() le fait déjà.
+        # Limite connue : pour un PDF multi-pages, seule la page 1 est analysée
+        # visuellement (signatures/cachets/articles habituellement sur la 1ère page
+        # pour les factures/lettres de change tunisiennes, qui sont en général
+        # mono-page).
+        if ext == ".pdf":
+            from pdf2image import convert_from_path
+            pages = convert_from_path(image_path, dpi=200)
+            if pages:
+                _tmp_pdf_image = os.path.join(
+                    tempfile.gettempdir(), f"_visual_pdf_{os.getpid()}_{id(pages)}.png"
+                )
+                pages[0].save(_tmp_pdf_image, "PNG")
+                image_path = _tmp_pdf_image
+                ext = ".png"
+
         mime_map = {
             ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
             ".png": "image/png",  ".bmp": "image/bmp",
@@ -1008,6 +1066,9 @@ JSON :"""
         return json.dumps({"error": f"JSON invalide : {e}", "raw": content[:300]}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": f"Erreur vision : {str(e)}"}, ensure_ascii=False)
+    finally:
+        if _tmp_pdf_image and os.path.exists(_tmp_pdf_image):
+            os.remove(_tmp_pdf_image)
 
 
 # ── Outil 5 : extract_augmented_entities ─────────────────────────────────────
@@ -1117,8 +1178,7 @@ def extract_augmented_entities(
   "_document_type": "lettre_de_change",
 
   // ── I. FINANCIER ──────────────────────────────────────────────────────────
-  "montant_en_lettres" : "montant écrit en toutes lettres",
-  "timbre_fiscal"      : null,
+  "montant_en_lettres" : "montant manuscrit en toutes lettres — vérifié contre le montant numérique (voir RÈGLE 6)",
 
   // ── II. VISUEL & SÉCURITÉ ─────────────────────────────────────────────────
   "signature_tire"     : true/false,
@@ -1161,11 +1221,22 @@ Identifie le type en cherchant ces mots-clés exacts :
         type_instruction = 'Type confirmé : "lettre_de_change".\n'
         schema_a_utiliser = schema_lettre
 
+    # Valeur numérique du montant déjà extraite par le modèle principal (pour cross-check
+    # avec le montant manuscrit en lettres — voir RÈGLE 6 plus bas)
+    montant_connu = (
+        base.get("MONTANT") or base.get("montant")
+        or base.get("MONTANT_TTC") or base.get("montant_ttc")
+    )
+    montant_connu_section = (
+        f"\nMontant déjà lu par le modèle principal dans la case imprimée : {montant_connu}\n"
+        if montant_connu else ""
+    )
+
     # ── Prompt expert ────────────────────────────────────────────────────────
     prompt = f"""Tu es un expert en analyse contextuelle de documents commerciaux du Maghreb (Tunisie, Maroc, Algérie).
 Tu reçois le texte brut produit par un OCR et tu extrais les données structurées détaillées.
 
-CONTEXTE : Un modèle principal a déjà extrait les champs basiques (fournisseur nom, client nom, date, numéro, montant TTC pour les factures ; tiré, tireur, montant, RIB pour les traites).
+CONTEXTE : Un modèle principal a déjà extrait les champs basiques (fournisseur nom, client nom, date, numéro, montant TTC pour les factures ; tiré, tireur, montant, RIB pour les traites).{montant_connu_section}
 TON RÔLE : Extraire tout le reste — les détails des articles, les taxes, les éléments visuels, les coordonnées, les références logistiques.
 
 ═══════════════════════════════════════════
@@ -1242,19 +1313,28 @@ RÈGLE DE SÉPARATION DES CHAMPS :
 RÈGLE 2 — TABLEAU DES ARTICLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Le tableau a souvent ces colonnes dans cet ordre :
-  Code/Ref | N° BL | Désignation | N° Série/Lot | Quantité | Prix Unitaire HT | Montant HT | TVA%
+  Code/Ref | N° BL | Désignation | N° Série/Lot | Quantité | Prix Unitaire HT | %RM | TVA% | Montant HT
 
 Pour chaque article extrais :
-  "designation"    → colonne "Désignation" ou "Description" — le nom du produit uniquement
-  "quantite"       → colonne "QTE", "Qté", "Quantité" — un nombre entier ou décimal simple
-  "prix_unitaire"  → colonne "P.U.H.T", "Prix Uni HT", "P.U.V.HT" — prix sans taxes
-  "total_ht"       → colonne "Montant HT", "Total HT" par ligne — copie tel quel
+  "designation"      → colonne "Désignation" ou "Description" — le nom du produit uniquement
+  "quantite"         → colonne "QTE", "Qté", "Quantité" — un nombre entier ou décimal simple
+  "prix_unitaire_ht" → colonne "P.U.H.T", "Prix Uni HT", "P.U.V.HT" — prix sans taxes
+  "remise_pct_ligne" → colonne "%RM", "Remise", "Rem." — nombre (10 pour 10%), 0 si vide/0, null UNIQUEMENT
+                        si cette colonne n'existe pas du tout dans le tableau
+  "tva_rate_ligne"   → colonne "TVA%", "Taux TVA"
+  "total_ht_ligne"   → colonne "Montant HT", "Total HT" par ligne — copie tel quel
 
 ⚠️ PIÈGES FRÉQUENTS dans les tableaux :
   ❌ Le N° Série/Lot (ex: "200237-2-00-237") N'EST PAS la quantité → quantite = colonne QTE
   ❌ Le N° BL (ex: "CB216296") N'EST PAS la désignation → désignation = nom du produit
-  ❌ Ne recalcule pas total_ht = quantite × prix_unitaire → copie la colonne
+  ❌ Ne recalcule pas total_ht_ligne = quantite × prix_unitaire_ht → copie la colonne
+  ❌ N'OMETS JAMAIS la colonne %RM — une remise ignorée fausse tout le calcul d'audit en aval
   ✅ Si une ligne ne contient que le N° série sur plusieurs sous-lignes, c'est une seule ligne d'article
+
+⚠️ NE JAMAIS DÉCALER LES LIGNES : quand une désignation est longue ou coupée sur 2 lignes dans le texte OCR,
+   les valeurs numériques (QTE/PU/%RM/TVA/Montant HT) qui suivent appartiennent à CETTE désignation, pas à
+   la suivante. Avant de répondre, vérifie pour chaque ligne : quantite × prix_unitaire_ht × (1 - remise/100)
+   ≈ total_ht_ligne — si l'écart est important, relis le tableau, une ligne est probablement décalée.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 3 — SÉPARATEUR DÉCIMAL (TRÈS IMPORTANT)
@@ -1357,6 +1437,21 @@ RÈGLE 5 — CHAMPS SPÉCIAUX
     ❌ NE JAMAIS remplacer la devise par une autre.
     ❌ NE JAMAIS inventer ce texte si tu ne le vois pas clairement.
     → null si ce champ est absent du document.
+
+  "montant_en_lettres" (LETTRE DE CHANGE) → ⚠️ texte manuscrit cursif, lecture difficile :
+    Lis chaque mot lentement, lettre par lettre — ne devine pas un mot à partir de sa forme générale.
+    Confusions fréquentes en écriture cursive à vérifier explicitement avant de répondre :
+      "cinq cent"      ≠ "cent cinquante"   (cinq-cent = 500 ; cent-cinquante = 150 — très différents !)
+      "quatre-vingt"   ≠ "quatorze"
+      "soixante"       ≠ "seize"
+      "mille"          ≠ "mil"  (même nombre, orthographe variable, n'invente pas un autre nombre)
+    Le "Montant déjà lu par le modèle principal" indiqué plus haut dans le CONTEXTE (ex: 1500,000) vient
+    de la case imprimée encadrée par # et est BIEN PLUS FIABLE que ta lecture de l'écriture manuscrite.
+    ⚠️ OBLIGATOIRE AVANT DE RÉPONDRE : convertis ce nombre en toutes lettres toi-même (ex: 1500,000 →
+    "Mille cinq cents dinars") et UTILISE CETTE CONVERSION comme valeur de "montant_en_lettres", sauf si
+    l'écriture manuscrite est sans ambiguïté possible un montant clairement différent (rare).
+    Ne pars jamais uniquement de ta lecture visuelle de l'écriture manuscrite sans la confronter à ce
+    montant numérique connu — c'est la cause la plus fréquente d'erreur sur ce champ.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RÈGLE 7 — ERREURS OCR

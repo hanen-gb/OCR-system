@@ -5,14 +5,16 @@ Déclenche un email d'alerte si au moins une condition est remplie :
   1. Échéance dépassée ou dans ≤ ALERT_DEADLINE_DAYS jours (défaut : 2)
   2. Montant TTC > ALERT_MONTANT_RATIO × moyenne des documents du même type en DB
      (fallback : montant_ttc > ALERT_THRESHOLD_DT si historique insuffisant)
+  3. Nouveau document (jamais vu en base) ET montant TTC > ALERT_NOUVEAU_MONTANT_DT (défaut : 4000 DT)
 
 Variables à ajouter dans assistant/.env :
-  GMAIL_SENDER        adresse Gmail expéditrice (ex: toncompte@gmail.com)
-  GMAIL_APP_PASSWORD  mot de passe d'application Google (16 caractères)
-  ALERT_EMAIL_TO      destinataire (ex: destinataire@example.com)
-  ALERT_DEADLINE_DAYS jours avant échéance pour alerter (défaut : 2)
-  ALERT_THRESHOLD_DT  seuil fixe de repli en DT si pas d'historique (défaut : 5000)
-  ALERT_MONTANT_RATIO ratio vs moyenne DB pour déclencher l'alerte (défaut : 3.0)
+  GMAIL_SENDER             adresse Gmail expéditrice (ex: toncompte@gmail.com)
+  GMAIL_APP_PASSWORD       mot de passe d'application Google (16 caractères)
+  ALERT_EMAIL_TO           destinataire (ex: destinataire@example.com)
+  ALERT_DEADLINE_DAYS      jours avant échéance pour alerter (défaut : 2)
+  ALERT_THRESHOLD_DT       seuil fixe de repli en DT si pas d'historique (défaut : 5000)
+  ALERT_MONTANT_RATIO      ratio vs moyenne DB pour déclencher l'alerte (défaut : 3.0)
+  ALERT_NOUVEAU_MONTANT_DT seuil en DT pour un NOUVEAU document (défaut : 4000)
 """
 
 import os
@@ -21,12 +23,15 @@ from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-ALERT_THRESHOLD_DT  = float(os.getenv("ALERT_THRESHOLD_DT",  "5000"))
-ALERT_DEADLINE_DAYS = int(os.getenv("ALERT_DEADLINE_DAYS",   "2"))
-ALERT_MONTANT_RATIO = float(os.getenv("ALERT_MONTANT_RATIO", "3.0"))
-ALERT_EMAIL_TO      = os.getenv("ALERT_EMAIL_TO",            "expediteur@gmail.com")
-GMAIL_SENDER        = os.getenv("GMAIL_SENDER",              "")
-GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD",        "")
+ALERT_THRESHOLD_DT       = float(os.getenv("ALERT_THRESHOLD_DT",       "5000"))
+ALERT_DEADLINE_DAYS      = int(os.getenv("ALERT_DEADLINE_DAYS",        "2"))
+ALERT_MONTANT_RATIO      = float(os.getenv("ALERT_MONTANT_RATIO",      "3.0"))
+ALERT_NOUVEAU_MONTANT_DT = float(os.getenv("ALERT_NOUVEAU_MONTANT_DT", "4000"))
+ALERT_EMAIL_TO           = os.getenv("ALERT_EMAIL_TO",                 "expediteur@gmail.com")
+GMAIL_SENDER             = os.getenv("GMAIL_SENDER",                   "")
+# Google affiche le mot de passe d'application avec des espaces ("xxxx xxxx xxxx xxxx") —
+# on les retire car Gmail SMTP refuse l'authentification si le mot de passe les contient.
+GMAIL_APP_PASSWORD       = os.getenv("GMAIL_APP_PASSWORD",             "").replace(" ", "")
 
 _DATE_FORMATS = [
     "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y",
@@ -57,7 +62,7 @@ def check_montant_vs_historique(
 ) -> str | None:
     """
     Compare le montant du document courant contre la moyenne des documents
-    du même type (facture ou traite) présents en base SQLite.
+    du même type (facture ou traite) présents en base PostgreSQL.
 
     Retourne une chaîne de raison d'alerte, ou None si pas d'alerte.
     Nécessite au moins 3 documents du même type pour être fiable.
@@ -93,11 +98,30 @@ def check_montant_vs_historique(
     return None
 
 
+def check_nouveau_montant_eleve(
+    montant_ttc: float | None,
+    is_nouveau : bool,
+) -> str | None:
+    """
+    Alerte si le document est NOUVEAU (jamais vu en base) et que son montant TTC
+    dépasse ALERT_NOUVEAU_MONTANT_DT (défaut : 4000 DT).
+
+    Retourne une chaîne de raison d'alerte, ou None si pas d'alerte.
+    """
+    if not is_nouveau or montant_ttc is None or montant_ttc <= 0:
+        return None
+    if montant_ttc > ALERT_NOUVEAU_MONTANT_DT:
+        return (f"Nouveau document détecté avec un montant TTC élevé "
+                f"({montant_ttc:,.3f} DT > seuil de {ALERT_NOUVEAU_MONTANT_DT:,.0f} DT)")
+    return None
+
+
 def check_alert_conditions(
     montant_ttc   : float | None,
     date_echeance : str | None,
     doc_type      : str | None = None,
     historique    : list | None = None,
+    is_nouveau    : bool = False,
 ) -> list[str]:
     """
     Retourne la liste des raisons d'alerte (liste vide = pas d'alerte).
@@ -105,6 +129,7 @@ def check_alert_conditions(
     Conditions :
       1. Échéance dépassée ou dans ≤ ALERT_DEADLINE_DAYS jours
       2. Montant TTC anormal vs historique du même type (ou > seuil fixe si pas d'historique)
+      3. Nouveau document ET montant TTC > ALERT_NOUVEAU_MONTANT_DT
     """
     alerts = []
 
@@ -126,6 +151,11 @@ def check_alert_conditions(
     raison_montant = check_montant_vs_historique(montant_ttc, doc_type, historique or [])
     if raison_montant:
         alerts.append(raison_montant)
+
+    # ── Condition 3 : Nouveau document + montant élevé ────────────────────────
+    raison_nouveau = check_nouveau_montant_eleve(montant_ttc, is_nouveau)
+    if raison_nouveau:
+        alerts.append(raison_nouveau)
 
     return alerts
 

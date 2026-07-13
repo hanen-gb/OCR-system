@@ -23,17 +23,18 @@ function toIso(d: Date): string {
 /**
  * Convertit le format stocké dans l'historique vers "YYYY-MM-DD".
  * Supporte :
- *   - "15/04/2026 14:30:00"  (toLocaleString fr-FR)
- *   - "2026-04-15T..."       (ISO)
- *   - "2026-04-15"           (ISO court)
+ *   - "15/04/2026 14:30:00"   (toLocaleString fr-FR)
+ *   - "15/04/2026, 14:30:00"  (toLocaleString fr-FR avec virgule — Chrome/Node récents)
+ *   - "2026-04-15T..."        (ISO)
+ *   - "2026-04-15"            (ISO court)
  */
 function entryDateToIso(dateStr: string): string {
   if (!dateStr) return "";
-  // Format fr-FR : "DD/MM/YYYY ..."
-  if (dateStr.includes("/")) {
-    const [datePart] = dateStr.split(" ");
-    const [dd, mm, yyyy] = datePart.split("/");
-    if (dd && mm && yyyy) return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  // Format fr-FR : extrait DD/MM/YYYY peu importe ce qui suit (virgule, "à", heure...)
+  const m = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) {
+    const [, dd, mm, yyyy] = m;
+    return `${yyyy}-${mm}-${dd}`;
   }
   // Format ISO : retourne les 10 premiers caractères
   return dateStr.slice(0, 10);

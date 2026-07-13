@@ -143,6 +143,48 @@ export async function predictInvoice(
   }
 }
 
+/**
+ * Ré-audite un JSON d'entités déjà extrait, sans relancer l'extraction (Agent 1).
+ * Utilisé après une correction manuelle de l'analyse contextuelle (HITL).
+ */
+export async function reauditEntities(
+  entities: Record<string, unknown>,
+  baseEntities: Record<string, unknown> = {},
+): Promise<{ audit: AuditReport; status: string }> {
+  const res = await fetch(`${AGENT_API_URL}/audit`, {
+    method : "POST",
+    headers: { "Content-Type": "application/json" },
+    body   : JSON.stringify({ complete_entities: entities, base_entities: baseEntities }),
+    signal : AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ status: "error" }));
+    return { audit: body.audit ?? null, status: "error", ...body };
+  }
+  return res.json();
+}
+
+/**
+ * Ré-analyse (Agent 3) un JSON d'entités déjà extrait, sans relancer l'extraction.
+ * À appeler avec le rapport d'audit obtenu via reauditEntities().
+ */
+export async function reanalyzeEntities(
+  entities: Record<string, unknown>,
+  auditReport: Record<string, unknown> = {},
+): Promise<{ analyse: AnalystReport; status: string }> {
+  const res = await fetch(`${AGENT_API_URL}/analyst`, {
+    method : "POST",
+    headers: { "Content-Type": "application/json" },
+    body   : JSON.stringify({ complete_entities: entities, audit_report: auditReport }),
+    signal : AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ status: "error" }));
+    return { analyse: body.analyse ?? null, status: "error", ...body };
+  }
+  return res.json();
+}
+
 export const TARGET_LABELS = [
   "FOURNISSEUR",
   "CLIENT",
@@ -208,7 +250,7 @@ export async function fetchToken(username: string, role: string): Promise<boolea
 }
 
 /**
- * Supprime un document de la base SQLite (annule un doublon).
+ * Supprime un document de la base PostgreSQL (annule un doublon).
  * Lève une erreur si le token est absent ou si le rôle n'est pas admin.
  */
 export async function deleteDocument(docType: string, docNumber: string): Promise<boolean> {

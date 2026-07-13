@@ -70,6 +70,19 @@ ENTITIES_TRAITE = [
     "tireur", "tire", "rib", "domiciliation",
 ]
 
+# Le modele a ete fine-tune pour repondre avec ces cles en minuscules (ENTITIES_TRAITE),
+# mais le frontend (TRAITE_LABELS dans frontend/src/lib/api.ts) attend des labels en
+# MAJUSCULES pour les entites retournees par /predict. Ce mapping fait le pont.
+ENTITIES_TRAITE_LABEL_MAP = {
+    "numero_traite":   "NUMERO_TRAITE",
+    "date_echeance":   "DATE_ECHEANCE",
+    "montant":         "MONTANT",
+    "tireur":          "TIREUR",
+    "tire":            "TIRE",
+    "rib":             "RIB",
+    "domiciliation":   "DOMICILIATION",
+}
+
 PROMPT_TRAITE = """Tu es un expert OCR spécialisé dans les lettres de change tunisiennes (كمبيالة).
 Analyse l'image et extrais les 7 champs suivants en te guidant par leur POSITION sur le document :
 
@@ -423,7 +436,7 @@ class ModelTraite:
             parsed = {e: "N/A" for e in ENTITIES_TRAITE}
 
         entities = [
-            {"label": label, "text": str(parsed.get(label, "N/A")), "box": None, "words": []}
+            {"label": ENTITIES_TRAITE_LABEL_MAP[label], "text": str(parsed.get(label, "N/A")), "box": None, "words": []}
             for label in ENTITIES_TRAITE
             if parsed.get(label) and parsed.get(label) != "N/A"
         ]
