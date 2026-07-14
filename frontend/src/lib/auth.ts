@@ -62,7 +62,7 @@ const DEFAULT_USERS: UserProfile[] = [
     username: "demo",
     password: "REDACTED",
     displayName: "Hanen Goubaa",
-    email: "expediteur@gmail.com",
+    email: "admin@example.com",
     role: "admin",
     avatarColor: AVATAR_COLORS[2],
     bio: "Administrator account.",

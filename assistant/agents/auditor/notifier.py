@@ -27,7 +27,7 @@ ALERT_THRESHOLD_DT       = float(os.getenv("ALERT_THRESHOLD_DT",       "5000"))
 ALERT_DEADLINE_DAYS      = int(os.getenv("ALERT_DEADLINE_DAYS",        "2"))
 ALERT_MONTANT_RATIO      = float(os.getenv("ALERT_MONTANT_RATIO",      "3.0"))
 ALERT_NOUVEAU_MONTANT_DT = float(os.getenv("ALERT_NOUVEAU_MONTANT_DT", "4000"))
-ALERT_EMAIL_TO           = os.getenv("ALERT_EMAIL_TO",                 "expediteur@gmail.com")
+ALERT_EMAIL_TO           = os.getenv("ALERT_EMAIL_TO",                 "")
 GMAIL_SENDER             = os.getenv("GMAIL_SENDER",                   "")
 # Google affiche le mot de passe d'application avec des espaces ("xxxx xxxx xxxx xxxx") —
 # on les retire car Gmail SMTP refuse l'authentification si le mot de passe les contient.

@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from jose import jwt, JWTError
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
-JWT_SECRET    = os.getenv("JWT_SECRET", "change-me")
+JWT_SECRET    = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 
 from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage

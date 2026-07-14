@@ -97,17 +97,7 @@ class AuthManager:
                 username="admin",
                 display_name="Administrateur",
                 email="admin@example.com",
-                password="REDACTED",
-                role="admin",
-                email_verified=True,
-            )
-
-        if "hanengb" not in existing:
-            self.create_user(
-                username="hanengb",
-                display_name="Hanen GB",
-                email="admin@example.com",
-                password="REDACTED",
+                password=os.getenv("ADMIN_PASSWORD", "changeme"),
                 role="admin",
                 email_verified=True,
             )
