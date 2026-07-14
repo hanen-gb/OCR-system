@@ -26,11 +26,7 @@ Système complet d'extraction automatique d'entités clés à partir de factures
   - [Agent 2 — L'Auditeur](#agent-2--lauditeur)
   - [Agent 3 — L'Analyste](#agent-3--lanalyste)
   - [Agent 4 — Le Chatbot](#agent-4--le-chatbot)
-  - [Base SQLite](#base-sqlite)
-- [Clés API](#clés-api-requises)
-- [Observabilité LangSmith](#observabilité-langsmith)
 - [Performances du modèle](#performances-du-modèle)
-- [Lancer le projet](#lancer-le-projet)
 
 ---
 
@@ -152,9 +148,8 @@ Système en deux couches :
 
 **Variable d'environnement optionnelle** (`assistant/.env`) :
 ```env
-JWT_SECRET=votre-secret-de-production-difficile-a-deviner
+JWT_SECRET=votre-secret-de-production
 ```
-Si absent, la valeur par défaut `change-me` est utilisée (suffisant en local).
 
 **Séparation des rôles concrète** :
 
@@ -164,7 +159,7 @@ Si absent, la valeur par défaut `change-me` est utilisée (suffisant en local).
 | Corriger entités (HITL) | ✅ | ✅ |
 | Chatbot, historique, export | ✅ | ✅ |
 | Voir tous les comptes (SettingsPage) | ❌ (masqué UI) | ✅ |
-| Supprimer un utilisateur | ❌ | ✅ (sauf admin + hanen) |
+| Supprimer un utilisateur | ❌ | ✅ (sauf admin) |
 | `DELETE /documents/{type}/{n}` | ❌ (403 FastAPI) | ✅ (JWT vérifié) |
 
 > **Pour un déploiement production** : ajouter JWT expiry (`exp`), refresh token, et une colonne `owner_username` dans PostgreSQL (déjà présente) pour filtrer les documents par utilisateur côté SQL.
@@ -188,13 +183,6 @@ Système multi-utilisateur dont la base d'identité est **entièrement côté cl
 }
 ```
 
-**Comptes par défaut** (toujours présents, non supprimables) :
-
-| Utilisateur | Mot de passe | Rôle |
-|---|---|---|
-| `admin` | `admin123` | Administrateur |
-| `hanen` | `pfe2025` | Administrateur |
-
 **Fonctions exportées** :
 
 | Fonction | Description |
@@ -206,7 +194,7 @@ Système multi-utilisateur dont la base d'identité est **entièrement côté cl
 | `register(username, password, displayName, email)` | Crée un nouveau compte (role "user") |
 | `updateProfile(username, updates)` | Met à jour displayName, email, bio, photo, avatarColor |
 | `changePassword(username, current, new)` | Vérifie l'ancien avant de modifier |
-| `deleteUser(username)` | Interdit sur "admin" et "hanen" |
+| `deleteUser(username)` | Interdit sur "admin" |
 | `getAllUsers()` | Fusionne utilisateurs stockés avec les defaults |
 | `getHistoryKey(username)` | Clé localStorage d'historique par user |
 
@@ -330,7 +318,7 @@ Formulaire de modification du profil : photo (import base64), displayName, email
 3 sections :
 1. **Apparence** : toggle Dark / Light avec boutons Sun/Moon
 2. **Langue** : Français / English
-3. **Gestion utilisateurs** *(admin uniquement)* : liste tous les utilisateurs avec avatar/photo, rôle, badge "protégé" pour admin/hanen, bouton suppression rouge pour les autres
+3. **Gestion utilisateurs** *(admin uniquement)* : liste tous les utilisateurs avec avatar/photo, rôle, badge "protégé" pour admin, bouton suppression rouge pour les autres
 
 ---
 
@@ -611,73 +599,6 @@ DOUBLON > SIGNATURE_MANQUANTE > ERREUR_CALCUL > ERREUR_TVA > ERREUR_NET_A_PAYER 
 
 ---
 
-### Base SQLite
-
-**Fichier** : `assistant/data/documents.db`
-
-**Table `documents`** :
-```sql
-CREATE TABLE documents (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    doc_type    TEXT    NOT NULL,   -- "facture" | "lettre_de_change"
-    doc_number  TEXT    NOT NULL,   -- clé de déduplication
-    fournisseur TEXT,
-    montant     REAL,
-    date_doc    TEXT,
-    first_seen  TEXT    NOT NULL    -- ISO 8601
-);
-
-CREATE UNIQUE INDEX idx_doc_key ON documents (doc_type, doc_number);
-```
-
-**Fonctions** (`assistant/agents/auditor/db.py`) :
-
-| Fonction | Description |
-|---|---|
-| `check_doublon(doc_type, doc_number)` | Retourne `NOUVEAU` / `DOUBLON` / `INCONNU` |
-| `register_document(...)` | INSERT OR IGNORE (idempotent) |
-| `list_documents(limit)` | SELECT DESC ORDER BY id (partagé avec Agent 3) |
-| `delete_document(doc_type, doc_number)` | Annule une détection doublon |
-
-La base est **partagée entre les Agents 2, 3 et 4** — Agent 2 y écrit, Agent 3 y lit pour les statistiques, Agent 4 peut y faire des requêtes pour le contexte.
-
----
-
----
-
-## Clés API requises
-
-Créer un fichier `.env` à la racine du dossier `assistant/` :
-
-```env
-GROQ_API_KEY=gsk_...
-GOOGLE_API_KEY=AIza...
-OCR_SPACE_API_KEY=K_...
-HUGGINGFACEHUB_API_TOKEN=hf_...
-LANGCHAIN_API_KEY=ls__...
-LANGCHAIN_PROJECT=OCR-PFE-GLM
-LANGCHAIN_TRACING_V2=true
-```
-
-| Clé | Modèles utilisés |
-|---|---|
-| `GROQ_API_KEY` | qwen3-32b (extraction), llama-4-scout-17b (vision), llama-3.3-70b (chatbot) |
-| `GOOGLE_API_KEY` | Gemini 2.0-flash (OCR fallback + vision), Gemini 1.5-flash (texte fallback) |
-| `OCR_SPACE_API_KEY` | OCR primaire (25 000 req/mois gratuit) |
-| `HUGGINGFACEHUB_API_TOKEN` | Qwen2.5-7B-Instruct (fallback extraction texte) |
-| `LANGCHAIN_API_KEY` | LangSmith observabilité |
-
----
-
-## Observabilité LangSmith
-
-Les Agents 1, 2 et 3 sont tracés automatiquement dans LangSmith. Chaque invocation est loggée avec :
-- `run_name` : `"Extracteur — facture.pdf"` / `"Auditeur — facture.pdf"` / `"Analyste — facture.pdf"`
-- `tags` : `["agent1", "extracteur", "facture"]` etc.
-- `metadata` : `{filename, document_type}`
-
-Tableau de bord : [smith.langchain.com](https://smith.langchain.com) — projet `OCR-PFE-GLM`.
-
 ---
 
 ## Performances du modèle
@@ -693,50 +614,6 @@ Tableau de bord : [smith.langchain.com](https://smith.langchain.com) — projet 
 | Précision MONTANT_TTC | 96.2% |
 | Dataset d'entraînement | 4 020 documents tunisiens |
 | Fine-tuning | LoRA mergé — zai-org/GLM-OCR |
-
----
-
-## Lancer le projet
-
-### 1 — Backend GLM-OCR (terminal 1)
-
-```bash
-cd backend
-pip install -r requirements.txt
-python main.py
-# → http://localhost:7860
-```
-
-### 2 — Backend Agents LangGraph (terminal 2)
-
-```bash
-cd assistant
-pip install -r requirements.txt
-uvicorn api.main:app --host 0.0.0.0 --port 8002 --reload
-# → http://localhost:8002
-```
-
-### 3 — Frontend React (terminal 3)
-
-```bash
-cd frontend
-npm install
-npm run dev
-# → http://localhost:3000
-```
-
-### Vérification
-
-```bash
-# Santé Backend GLM-OCR
-curl http://localhost:7860/health
-
-# Santé Backend Agents
-curl http://localhost:8002/health
-
-# Entités supportées
-curl http://localhost:7860/labels
-```
 
 ---
 
