@@ -1,172 +1,172 @@
-# ODSINET — Système OCR Multi-Agent GLM · Extraction d'entités sur documents commerciaux tunisiens
+# ODSINET — GLM Multi-Agent OCR System · Entity Extraction on Tunisian Business Documents
 
-**PFE 2026 · Goubaa Hanen · ENIG Gabès**
+**Final-Year Project (PFE) 2026 · Goubaa Hanen · ENIG Gabès**
 
-Système complet d'extraction automatique d'entités clés à partir de factures et lettres de change tunisiennes, basé sur une architecture **multi-agent LangGraph**, un modèle **GLM-OCR fine-tuné avec LoRA**, et une interface React professionnelle.
+A complete system for automatically extracting key entities from Tunisian invoices and bills of exchange, built on a **multi-agent LangGraph architecture**, a **GLM-OCR model fine-tuned with LoRA**, and a professional React interface.
 
 ---
 
-## Table des matières
+## Table of contents
 
-- [Architecture globale](#architecture-globale)
-- [Frontend React](#frontend-react)
-  - [Stack technique](#stack-technique-frontend)
-  - [Structure des fichiers](#structure-des-fichiers)
-  - [Authentification](#authentification--authts)
-  - [Contextes globaux](#contextes-globaux)
+- [Overall architecture](#overall-architecture)
+- [React Frontend](#react-frontend)
+  - [Technical stack](#frontend-technical-stack)
+  - [File structure](#file-structure)
+  - [Authentication](#authentication--authts--jwt-fastapi)
+  - [Global contexts](#global-contexts)
   - [Pages](#pages)
-  - [Composants partagés](#composants-partagés)
-- [Backend GLM-OCR](#backend-glm-ocr--backendmainpy--port-7860)
-  - [Modèle](#modèle)
-  - [Pipeline d'inférence](#pipeline-dinférence)
-  - [Endpoints GLM](#endpoints-glm-ocr)
-- [Backend Agents](#backend-agents--assistantapimainpy--port-8002)
-  - [Endpoint /analyse](#endpoint-analyse--pipeline-principal)
-  - [Agent 1 — L'Extracteur](#agent-1--lextracteur)
-  - [Agent 2 — L'Auditeur](#agent-2--lauditeur)
-  - [Agent 3 — L'Analyste](#agent-3--lanalyste)
-  - [Agent 4 — Le Chatbot](#agent-4--le-chatbot)
-- [Performances du modèle](#performances-du-modèle)
+  - [Shared components](#shared-components)
+- [GLM-OCR Backend](#glm-ocr-backend--backendmainpy--port-7860)
+  - [Model](#model)
+  - [Inference pipeline](#inference-pipeline)
+  - [GLM endpoints](#glm-ocr-endpoints)
+- [Agents Backend](#agents-backend--assistantapimainpy--port-8002)
+  - [Endpoint /analyse](#endpoint-analyse--main-pipeline)
+  - [Agent 1 — The Extractor](#agent-1--the-extractor)
+  - [Agent 2 — The Auditor](#agent-2--the-auditor)
+  - [Agent 3 — The Analyst](#agent-3--the-analyst)
+  - [Agent 4 — The Chatbot](#agent-4--the-chatbot)
+- [Model performance](#model-performance)
 
 ---
 
-## Architecture globale
+## Overall architecture
 
 ```
 Frontend (React/Vite)         :3000
          ↕  REST (multipart + JSON)
-Backend Agents (FastAPI)      :8002   ← orchestration LangGraph (Agents 1, 2, 3, 4)
+Agents Backend (FastAPI)      :8002   ← LangGraph orchestration (Agents 1, 2, 3, 4)
          ↕  REST (image → JSON)
-Backend GLM-OCR (FastAPI)     :7860   ← inférence modèle Vision-Language
+GLM-OCR Backend (FastAPI)     :7860   ← Vision-Language model inference
 ```
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                         PIPELINE ODSINET                             │
+│                          ODSINET PIPELINE                             │
 └──────────────────────────────────────────────────────────────────────┘
 
-  [Facture / Lettre de change]
+  [Invoice / Bill of exchange]
               │
               ▼
   ┌───────────────────────┐
-  │   Frontend React      │  localhost:3000
-  │   Upload de fichier   │
+  │   React Frontend      │  localhost:3000
+  │   File upload         │
   └──────────┬────────────┘
              │ POST /predict (image)
              ▼
   ┌───────────────────────────────┐
-  │  Backend GLM-OCR · :7860      │
-  │  Modèle Goubaa/glmocr-factures│
-  │  → 5 entités de base (JSON)   │
+  │  GLM-OCR Backend · :7860      │
+  │  Model Goubaa/glmocr-factures │
+  │  → 5 base entities (JSON)     │
   └──────────┬────────────────────┘
-             │ POST /analyse (fichier + base_entities)
+             │ POST /analyse (file + base_entities)
              ▼
   ┌───────────────────────────────────────────────────────────┐
-  │  Backend Agents · :8002                                   │
+  │  Agents Backend · :8002                                   │
   │                                                           │
-  │  Agent 1 (Extracteur)  → 30+ entités enrichies           │
+  │  Agent 1 (Extractor) → 30+ enriched entities              │
   │       ↓                                                   │
-  │  Agent 2 (Auditeur)    → rapport audit + verdict          │
+  │  Agent 2 (Auditor)   → audit report + verdict              │
   │       ↓                                                   │
-  │  Agent 3 (Analyste)    → anomalies + insights IA          │
+  │  Agent 3 (Analyst)   → anomalies + AI insights              │
   │       ↓                                                   │
-  │  Agent 4 (Chatbot)     → réponses conversationnelles      │
+  │  Agent 4 (Chatbot)   → conversational replies               │
   └──────────┬────────────────────────────────────────────────┘
              │ JSON { analyse_contextuelle, audit, analyse }
              ▼
   ┌───────────────────────┐
-  │   Frontend React      │  Affichage résultats
-  │   HITL + Chatbot IA   │  Correction manuelle
+  │   React Frontend      │  Results display
+  │   HITL + AI Chatbot   │  Manual correction
   └───────────────────────┘
 ```
 
 ---
 
-## FRONTEND REACT
+## REACT FRONTEND
 
-### Stack technique Frontend
+### Frontend technical stack
 
-| Outil | Rôle |
+| Tool | Role |
 |---|---|
-| React 18 + TypeScript | Framework UI |
+| React 18 + TypeScript | UI framework |
 | Vite 5 | Bundler / dev server |
-| React Router v6 | Routing SPA |
-| shadcn/ui | Composants primitifs (Button, Dialog, Input, Tabs, Table…) |
-| Tailwind CSS | Utilitaires CSS |
-| framer-motion | Animations fluides (sidebar, transitions, cartes) |
-| lucide-react | Icônes |
-| Recharts | Graphiques (AreaChart, PieChart) |
-| TanStack Query | Cache requêtes HTTP |
+| React Router v6 | SPA routing |
+| shadcn/ui | Primitive components (Button, Dialog, Input, Tabs, Table…) |
+| Tailwind CSS | CSS utilities |
+| framer-motion | Smooth animations (sidebar, transitions, cards) |
+| lucide-react | Icons |
+| Recharts | Charts (AreaChart, PieChart) |
+| TanStack Query | HTTP request cache |
 
 ---
 
-### Structure des fichiers
+### File structure
 
 ```
 frontend/src/
-├── App.tsx                     ← Router principal + providers globaux
-├── main.tsx                    ← Point d'entrée Vite
+├── App.tsx                     ← Main router + global providers
+├── main.tsx                    ← Vite entry point
 ├── lib/
-│   ├── auth.ts                 ← Auth multi-utilisateur (localStorage)
-│   ├── api.ts                  ← Appels REST vers les deux backends
-│   └── i18n.ts                 ← Traductions FR / EN
+│   ├── auth.ts                 ← Multi-user auth (localStorage)
+│   ├── api.ts                  ← REST calls to both backends
+│   └── i18n.ts                 ← FR / EN translations
 ├── contexts/
-│   ├── AppContext.tsx           ← Thème dark/light + langue globaux
-│   └── ChatbotContext.tsx       ← État du chatbot IA flottant
+│   ├── AppContext.tsx           ← Global dark/light theme + language
+│   └── ChatbotContext.tsx       ← Floating AI chatbot state
 ├── components/
-│   ├── AppLayout.tsx            ← Sidebar + topbar + layout général
-│   ├── ChatbotWidget.tsx        ← Widget chatbot flottant (bas droite)
-│   └── ui/                     ← 40+ composants shadcn/ui
+│   ├── AppLayout.tsx            ← Sidebar + topbar + overall layout
+│   ├── ChatbotWidget.tsx        ← Floating chatbot widget (bottom right)
+│   └── ui/                     ← 40+ shadcn/ui components
 └── pages/
-    ├── LoginPage.tsx            ← Page de connexion / inscription
-    ├── Dashboard.tsx            ← Tableau de bord analytics temps réel
-    ├── UploadPage.tsx           ← Page d'analyse (page principale)
-    ├── DocumentsPage.tsx        ← Historique des documents
-    ├── CalendarPage.tsx         ← Vue calendrier des échéances
-    ├── ProfilePage.tsx          ← Profil utilisateur + import photo
-    └── SettingsPage.tsx         ← Paramètres (thème, langue, users admin)
+    ├── LoginPage.tsx            ← Login / sign-up page
+    ├── Dashboard.tsx            ← Real-time analytics dashboard
+    ├── UploadPage.tsx           ← Analysis page (main page)
+    ├── DocumentsPage.tsx        ← Document history
+    ├── CalendarPage.tsx         ← Due-date calendar view
+    ├── ProfilePage.tsx          ← User profile + photo import
+    └── SettingsPage.tsx         ← Settings (theme, language, admin users)
 ```
 
 ---
 
-### Authentification — auth.ts + JWT FastAPI
+### Authentication — auth.ts + JWT FastAPI
 
-Système en deux couches :
+A two-layer system:
 
-**Couche 1 — Identité (localStorage, `auth.ts`)** : stockage des profils, vérification du mot de passe, gestion de session. Pas de réseau.
+**Layer 1 — Identity (localStorage, `auth.ts`)**: stores profiles, verifies passwords, manages sessions. No network calls.
 
-**Couche 2 — Autorisation API (JWT, FastAPI)** : après un login réussi, le frontend appelle `POST /token` sur FastAPI. L'agent retourne un JWT HS256 signé `{sub: username, role}`. Ce token est stocké dans `localStorage["odsinet_agent_token"]` et envoyé dans chaque requête agent via `Authorization: Bearer <token>`. Le endpoint `DELETE /documents/{type}/{number}` vérifie le token et rejette avec 403 si `role != "admin"`.
+**Layer 2 — API authorization (JWT, FastAPI)**: after a successful login, the frontend calls `POST /token` on FastAPI. The agent returns a signed HS256 JWT `{sub: username, role}`. This token is stored in `localStorage["odsinet_agent_token"]` and sent with every agent request via `Authorization: Bearer <token>`. The `DELETE /documents/{type}/{number}` endpoint verifies the token and rejects with 403 if `role != "admin"`.
 
-**Flux JWT au login :**
+**JWT flow at login:**
 ```
 1. login(username, password)  →  localStorage  (session)
 2. fetchToken(username, role) →  POST /token   (FastAPI)
-3. JWT stocké dans localStorage["odsinet_agent_token"]
+3. JWT stored in localStorage["odsinet_agent_token"]
 4. analyseDocument()          →  Authorization: Bearer <jwt>
-5. deleteDocument()           →  Authorization: Bearer <jwt>  [admin seulement]
+5. deleteDocument()           →  Authorization: Bearer <jwt>  [admin only]
 ```
 
-**Variable d'environnement optionnelle** (`assistant/.env`) :
+**Optional environment variable** (`assistant/.env`):
 ```env
-JWT_SECRET=votre-secret-de-production
+JWT_SECRET=your-production-secret
 ```
 
-**Séparation des rôles concrète** :
+**Concrete role separation**:
 
 | Action | user | admin |
 |---|---|---|
-| Upload + analyse | ✅ | ✅ |
-| Corriger entités (HITL) | ✅ | ✅ |
-| Chatbot, historique, export | ✅ | ✅ |
-| Voir tous les comptes (SettingsPage) | ❌ (masqué UI) | ✅ |
-| Supprimer un utilisateur | ❌ | ✅ (sauf admin) |
-| `DELETE /documents/{type}/{n}` | ❌ (403 FastAPI) | ✅ (JWT vérifié) |
+| Upload + analyze | ✅ | ✅ |
+| Correct entities (HITL) | ✅ | ✅ |
+| Chatbot, history, export | ✅ | ✅ |
+| View all accounts (SettingsPage) | ❌ (hidden in UI) | ✅ |
+| Delete a user | ❌ | ✅ (except admin) |
+| `DELETE /documents/{type}/{n}` | ❌ (403 FastAPI) | ✅ (JWT verified) |
 
-> **Pour un déploiement production** : ajouter JWT expiry (`exp`), refresh token, et une colonne `owner_username` dans PostgreSQL (déjà présente) pour filtrer les documents par utilisateur côté SQL.
+> **For a production deployment**: add JWT expiry (`exp`), a refresh token, and an `owner_username` column in PostgreSQL (already present) to filter documents per user at the SQL level.
 
-Système multi-utilisateur dont la base d'identité est **entièrement côté client** (localStorage). Pas de backend d'authentification pour les profils.
+A multi-user system whose identity store is **entirely client-side** (localStorage). No authentication backend for profiles.
 
-**Interface `UserProfile`** :
+**`UserProfile` interface**:
 ```typescript
 {
   username: string;
@@ -175,7 +175,7 @@ Système multi-utilisateur dont la base d'identité est **entièrement côté cl
   email: string;
   role: "admin" | "user";
   avatarColor: string;
-  photo?: string;      // base64 data-URL (import photo profil)
+  photo?: string;      // base64 data-URL (profile photo import)
   bio: string;
   createdAt: string;
   lang: "fr" | "en";
@@ -183,213 +183,213 @@ Système multi-utilisateur dont la base d'identité est **entièrement côté cl
 }
 ```
 
-**Fonctions exportées** :
+**Exported functions**:
 
-| Fonction | Description |
+| Function | Description |
 |---|---|
-| `login(username, password)` | Vérifie les credentials, écrit la session en localStorage |
-| `logout()` | Supprime la session courante |
-| `getSession()` | Lit le profil de l'utilisateur connecté |
-| `isAuthenticated()` | Booléen pour la protection des routes |
-| `register(username, password, displayName, email)` | Crée un nouveau compte (role "user") |
-| `updateProfile(username, updates)` | Met à jour displayName, email, bio, photo, avatarColor |
-| `changePassword(username, current, new)` | Vérifie l'ancien avant de modifier |
-| `deleteUser(username)` | Interdit sur "admin" |
-| `getAllUsers()` | Fusionne utilisateurs stockés avec les defaults |
-| `getHistoryKey(username)` | Clé localStorage d'historique par user |
+| `login(username, password)` | Verifies credentials, writes the session to localStorage |
+| `logout()` | Removes the current session |
+| `getSession()` | Reads the logged-in user's profile |
+| `isAuthenticated()` | Boolean used for route protection |
+| `register(username, password, displayName, email)` | Creates a new account (role "user") |
+| `updateProfile(username, updates)` | Updates displayName, email, bio, photo, avatarColor |
+| `changePassword(username, current, new)` | Verifies the old password before changing it |
+| `deleteUser(username)` | Forbidden on "admin" |
+| `getAllUsers()` | Merges stored users with the defaults |
+| `getHistoryKey(username)` | Per-user localStorage history key |
 
-**Clés localStorage** :
-- `odsinet_users` → tableau JSON de tous les profils
-- `odsinet_session` → profil de l'utilisateur connecté
-- `odsinet_history_<username>` → historique des analyses isolé par utilisateur
+**localStorage keys**:
+- `odsinet_users` → JSON array of all profiles
+- `odsinet_session` → the logged-in user's profile
+- `odsinet_history_<username>` → analysis history isolated per user
 
 ---
 
-### Contextes globaux
+### Global contexts
 
-**AppContext** (`contexts/AppContext.tsx`) :
-- Gère `theme: "dark" | "light"` persisté dans `odsinet_theme`
-- Gère `lang: "fr" | "en"` persisté dans `odsinet_lang`
-- Applique la classe `.light` sur `<html>` pour Tailwind
-- Expose `t(key: TranslationKey)` : fonction de traduction FR/EN
+**AppContext** (`contexts/AppContext.tsx`):
+- Manages `theme: "dark" | "light"` persisted in `odsinet_theme`
+- Manages `lang: "fr" | "en"` persisted in `odsinet_lang`
+- Applies the `.light` class on `<html>` for Tailwind
+- Exposes `t(key: TranslationKey)`: FR/EN translation function
 
-**ChatbotContext** (`contexts/ChatbotContext.tsx`) :
-- Gère l'état ouvert/fermé du widget chatbot flottant
-- Partage le contexte document courant (entités, audit, analyse) entre `UploadPage` et `ChatbotWidget`
+**ChatbotContext** (`contexts/ChatbotContext.tsx`):
+- Manages the open/closed state of the floating chatbot widget
+- Shares the current document context (entities, audit, analysis) between `UploadPage` and `ChatbotWidget`
 
 ---
 
 ### Pages
 
-#### App.tsx — Router & Routes protégées
+#### App.tsx — Router & Protected Routes
 
-`ProtectedRoute` redirige vers `/login` si `isAuthenticated()` retourne false, sinon enveloppe la page dans `<AppLayout>`.
+`ProtectedRoute` redirects to `/login` if `isAuthenticated()` returns false, otherwise wraps the page in `<AppLayout>`.
 
-Routes déclarées :
+Declared routes:
 
 | Route | Page | Protection |
 |---|---|---|
-| `/login` | LoginPage | Publique |
-| `/` | Dashboard | Protégée |
-| `/upload` | UploadPage | Protégée |
-| `/documents` | DocumentsPage | Protégée |
-| `/calendar` | CalendarPage | Protégée |
-| `/profile` | ProfilePage | Protégée |
-| `/settings` | SettingsPage | Protégée |
+| `/login` | LoginPage | Public |
+| `/` | Dashboard | Protected |
+| `/upload` | UploadPage | Protected |
+| `/documents` | DocumentsPage | Protected |
+| `/calendar` | CalendarPage | Protected |
+| `/profile` | ProfilePage | Protected |
+| `/settings` | SettingsPage | Protected |
 | `*` | NotFound | — |
 
 ---
 
 #### AppLayout — Sidebar & Navigation
 
-Wrapper de toutes les pages protégées. Structure :
+Wraps every protected page. Structure:
 
-**Sidebar desktop** (collapsible animée, 252px ↔ 60px via framer-motion) :
-- Deux sections : "Main" (Dashboard, Analyze, History, Calendar) et "System" (Profile, Settings)
-- Indicateur de page active animé (`layoutId="active-nav"`)
-- Toggles thème + langue en bas
-- Avatar + displayName + email + bouton Logout en pied de sidebar
+**Desktop sidebar** (animated, collapsible, 252px ↔ 60px via framer-motion):
+- Two sections: "Main" (Dashboard, Analyze, History, Calendar) and "System" (Profile, Settings)
+- Animated active-page indicator (`layoutId="active-nav"`)
+- Theme + language toggles at the bottom
+- Avatar + displayName + email + Logout button at the bottom of the sidebar
 
-**Sidebar mobile** : drawer animé (`x: -280 → 0`) avec overlay noir semi-transparent (`bg-black/50`), fermé au clic sur l'overlay ou les liens.
+**Mobile sidebar**: an animated drawer (`x: -280 → 0`) with a semi-transparent black overlay (`bg-black/50`), closed on overlay click or link click.
 
-**Topbar** (h-14) : hamburger mobile + badge "Backend Active" avec point vert pulsant (`animate-pulse`).
+**Topbar** (h-14): mobile hamburger + "Backend Active" badge with a pulsing green dot (`animate-pulse`).
 
-**ChatbotWidget** monté en superposition globale sur toutes les pages.
+**ChatbotWidget** mounted as a global overlay on every page.
 
-**Composant Avatar** : affiche la photo importée (base64) en priorité, sinon initiales colorées.
+**Avatar component**: shows the imported photo (base64) with priority, otherwise colored initials.
 
 ---
 
 #### Dashboard
 
-Affiche des analytics calculées **en temps réel depuis l'historique localStorage** de l'utilisateur connecté.
+Displays analytics computed **in real time from the logged-in user's localStorage history**.
 
-**6 KPI cards** :
-- Total documents analysés
-- Fournisseurs uniques (dédupliqués par nom normalisé)
-- Clients uniques
-- Taux de complétion (document avec ≥ 4 entités extraites = complet)
-- Temps d'inférence moyen (en secondes)
-- Date et nom du dernier document analysé
+**6 KPI cards**:
+- Total documents analyzed
+- Unique suppliers (deduplicated by normalized name)
+- Unique customers
+- Completion rate (a document with ≥ 4 extracted entities counts as complete)
+- Average inference time (in seconds)
+- Date and name of the last analyzed document
 
-**2 graphiques Recharts** :
-- `AreaChart` avec gradient : temps d'inférence des 10 derniers documents
-- `PieChart` en donut : taux de détection par entité (CLIENT, FOURNISSEUR, NUMERO_FACTURE, DATE_FACTURE, MONTANT_TTC)
+**2 Recharts charts**:
+- Gradient `AreaChart`: inference time of the last 10 documents
+- Donut `PieChart`: detection rate per entity (CLIENT, FOURNISSEUR, NUMERO_FACTURE, DATE_FACTURE, MONTANT_TTC)
 
-**Table historique** : 6 derniers documents avec toutes leurs entités extraites.
+**History table**: last 6 documents with all their extracted entities.
 
 ---
 
-#### UploadPage — Page principale d'analyse
+#### UploadPage — Main analysis page
 
-Orchestre l'ensemble du pipeline d'analyse.
+Orchestrates the entire analysis pipeline.
 
-**Flux d'analyse** :
-1. Dépôt ou sélection d'un fichier (JPG, PNG, PDF)
-2. `POST :7860/predict` → GLM-OCR → 5 entités de base
+**Analysis flow**:
+1. Drop or select a file (JPG, PNG, PDF)
+2. `POST :7860/predict` → GLM-OCR → 5 base entities
 3. `POST :8002/analyse` (multipart + `base_entities` JSON) → Agent 1 + 2 + 3
-4. Affichage des résultats : entités enrichies, rapport d'audit avec verdict, rapport analyste avec niveau d'alerte
-5. **HITL (Human-in-the-Loop)** : correction manuelle des entités par l'utilisateur
-6. Bouton "Re-auditer" → `POST :8002/audit` avec les entités corrigées
-7. Sauvegarde dans l'historique localStorage de l'utilisateur
+4. Results display: enriched entities, audit report with verdict, analyst report with alert level
+5. **HITL (Human-in-the-Loop)**: manual correction of entities by the user
+6. "Re-audit" button → `POST :8002/audit` with the corrected entities
+7. Saved to the user's localStorage history
 
 ---
 
 #### DocumentsPage
 
-Historique complet des analyses depuis le localStorage de l'utilisateur. Affiche nom de fichier, date, entités extraites et statut d'audit. Permet la suppression d'entrées individuelles.
+Full analysis history from the user's localStorage. Shows file name, date, extracted entities, and audit status. Allows deleting individual entries.
 
 ---
 
 #### CalendarPage
 
-Vue calendrier des documents. Positionne les factures et lettres de change sur leurs dates (date facture ou date d'échéance). Visualisation des échéances à venir.
+Calendar view of documents. Places invoices and bills of exchange on their dates (invoice date or due date). Visualizes upcoming due dates.
 
 ---
 
 #### ProfilePage
 
-Formulaire de modification du profil : photo (import base64), displayName, email, bio. Changement de mot de passe avec vérification de l'ancien. Sauvegarde via `updateProfile()` et `changePassword()` de `auth.ts`.
+Profile-editing form: photo (base64 import), displayName, email, bio. Password change with verification of the old one. Saved via `updateProfile()` and `changePassword()` from `auth.ts`.
 
 ---
 
 #### SettingsPage
 
-3 sections :
-1. **Apparence** : toggle Dark / Light avec boutons Sun/Moon
-2. **Langue** : Français / English
-3. **Gestion utilisateurs** *(admin uniquement)* : liste tous les utilisateurs avec avatar/photo, rôle, badge "protégé" pour admin, bouton suppression rouge pour les autres
+3 sections:
+1. **Appearance**: Dark / Light toggle with Sun/Moon buttons
+2. **Language**: French / English
+3. **User management** *(admin only)*: lists all users with avatar/photo, role, a "protected" badge for admin, a red delete button for others
 
 ---
 
-### Composants partagés
+### Shared components
 
 #### ChatbotWidget
 
-Widget flottant en bas à droite, visible sur toutes les pages. Quand un document est analysé, injecte automatiquement le contexte dans chaque message :
-- Entités extraites enrichies
-- Rapport d'audit (verdict + détails checks)
-- Rapport analyste (niveau d'alerte + insights)
+Floating widget in the bottom-right corner, visible on every page. Once a document has been analyzed, it automatically injects context into every message:
+- Enriched extracted entities
+- Audit report (verdict + check details)
+- Analyst report (alert level + insights)
 
-Appelle `POST :8002/chat` avec l'historique de conversation + contexte. Affiche les réponses de l'Agent 4 (Groq llama-3.3-70b).
-
----
+Calls `POST :8002/chat` with the conversation history + context. Displays Agent 4's replies (Groq llama-3.3-70b).
 
 ---
 
-## BACKEND GLM-OCR — `backend/main.py` · Port 7860
+---
 
-### Rôle
+## GLM-OCR BACKEND — `backend/main.py` · Port 7860
 
-Premier backend dédié à l'**inférence du modèle Vision-Language GLM-OCR** fine-tuné sur les documents commerciaux tunisiens. Extrait 5 entités de base depuis une image.
+### Role
 
-### Modèle
+The first backend, dedicated to **Vision-Language GLM-OCR model inference** fine-tuned on Tunisian business documents. Extracts 5 base entities from an image.
 
-| Paramètre | Valeur |
+### Model
+
+| Parameter | Value |
 |---|---|
-| Modèle publié | `Goubaa/glmocr-factures` |
+| Published model | `Goubaa/glmocr-factures` |
 | Base | `zai-org/GLM-OCR` (ZhipuAI) |
-| Fine-tuning | LoRA mergé sur factures tunisiennes |
-| Source locale | `backend/model/glm_model/` (si présent) |
-| Chargement | Singleton via `lifespan` FastAPI (une seule fois au démarrage) |
-| Device | CUDA float16 si GPU, sinon CPU float32 |
+| Fine-tuning | LoRA merged on Tunisian invoices |
+| Local source | `backend/model/glm_model/` (if present) |
+| Loading | Singleton via FastAPI `lifespan` (loaded once at startup) |
+| Device | CUDA float16 if GPU available, otherwise CPU float32 |
 | Max new tokens | 256 |
-| Max image size | 1024px (côté max, resize LANCZOS) |
+| Max image size | 1024px (longest side, LANCZOS resize) |
 
-**Entités extraites (5)** :
+**Extracted entities (5)**:
 
-| Entité | Description | Exemple |
+| Entity | Description | Example |
 |---|---|---|
-| `CLIENT` | Nom du client | `IEEE TUNISIA SECTION` |
-| `FOURNISSEUR` | Nom du fournisseur | `STE ZRELLI DE COMMERCE` |
-| `NUMERO_FACTURE` | Numéro de la facture | `509-2022` |
-| `DATE_FACTURE` | Date (format JJ/MM/AAAA) | `06/04/2022` |
-| `MONTANT_TTC` | Montant total TTC | `40.470` |
+| `CLIENT` | Customer name | `IEEE TUNISIA SECTION` |
+| `FOURNISSEUR` | Supplier name | `STE ZRELLI DE COMMERCE` |
+| `NUMERO_FACTURE` | Invoice number | `509-2022` |
+| `DATE_FACTURE` | Date (DD/MM/YYYY format) | `06/04/2022` |
+| `MONTANT_TTC` | Total amount incl. tax | `40.470` |
 
-### Pipeline d'inférence
+### Inference pipeline
 
-Fonction `run_glm(pil_image)` :
-1. Conversion image → RGB
-2. Resize si > 1024px (côté max, LANCZOS)
-3. Construction du message avec le template de chat GLM :
+`run_glm(pil_image)` function:
+1. Convert image → RGB
+2. Resize if > 1024px (longest side, LANCZOS)
+3. Build the message using GLM's chat template:
    ```python
    [{"role": "user", "content": [{"type": "image", ...}, {"type": "text", "text": PROMPT}]}]
    ```
-4. Prompt fixe d'extraction des 5 entités (identique à l'entraînement)
-5. `model.generate()` avec `max_new_tokens=256`, `do_sample=False`
-6. Décodage uniquement des tokens générés (pas du prompt)
-7. `parse_glm_output()` : regex `\{[^{}]*\}` pour extraire le JSON brut
-8. Fallback : `N/A` pour toutes les entités si parsing impossible
+4. Fixed prompt for extracting the 5 entities (identical to the one used during training)
+5. `model.generate()` with `max_new_tokens=256`, `do_sample=False`
+6. Decode only the generated tokens (not the prompt)
+7. `parse_glm_output()`: regex `\{[^{}]*\}` to extract the raw JSON
+8. Fallback: `N/A` for every entity if parsing fails
 
-### Endpoints GLM-OCR
+### GLM-OCR endpoints
 
-| Route | Méthode | Description |
+| Route | Method | Description |
 |---|---|---|
 | `POST /predict` | POST | `multipart/form-data` image → `{entities, full_text, timing}` |
 | `GET /health` | GET | `{status, models_ready, model, device, source}` |
-| `GET /labels` | GET | `{labels: [...5 entités...], count: 5}` |
+| `GET /labels` | GET | `{labels: [...5 entities...], count: 5}` |
 
-**Format réponse `/predict`** :
+**`/predict` response format**:
 ```json
 {
   "entities": [
@@ -404,42 +404,42 @@ Fonction `run_glm(pil_image)` :
 }
 ```
 
-> `box: null` — GLM-OCR ne fournit pas de coordonnées spatiales (limitation connue vs LayoutXLM).
+> `box: null` — GLM-OCR does not provide spatial coordinates (a known limitation compared to LayoutXLM).
 
 ---
 
 ---
 
-## BACKEND AGENTS — `assistant/api/main.py` · Port 8002
+## AGENTS BACKEND — `assistant/api/main.py` · Port 8002
 
-### Rôle
+### Role
 
-Second backend dédié à l'**orchestration des 4 agents LangGraph**. Reçoit le fichier document + les entités GLM, exécute la chaîne Agent1 → Agent2 → Agent3, et expose le chatbot Agent4.
+The second backend, dedicated to **orchestrating the 4 LangGraph agents**. Receives the document file + GLM entities, runs the Agent1 → Agent2 → Agent3 chain, and exposes the Agent4 chatbot.
 
 ### Endpoints
 
-| Route | Méthode | Agents | Description |
+| Route | Method | Agents | Description |
 |---|---|---|---|
-| `POST /analyse` | POST | 1 + 2 + 3 | Pipeline complet : extraction + audit + analyse comportementale |
-| `POST /audit` | POST | 2 seul | Re-auditer un JSON d'entités (après correction HITL) |
-| `POST /chat` | POST | 4 | Chatbot contextuel avec historique de conversation |
-| `GET /documents` | GET | — | Liste les documents en base SQLite |
-| `DELETE /documents/{type}/{number}` | DELETE | — | Supprime un document (annule une détection doublon) |
+| `POST /analyse` | POST | 1 + 2 + 3 | Full pipeline: extraction + audit + behavioral analysis |
+| `POST /audit` | POST | 2 only | Re-audit an entity JSON (after HITL correction) |
+| `POST /chat` | POST | 4 | Contextual chatbot with conversation history |
+| `GET /documents` | GET | — | Lists documents stored in SQLite |
+| `DELETE /documents/{type}/{number}` | DELETE | — | Deletes a document (cancels a duplicate detection) |
 | `GET /health` | GET | — | `{status: "ok", agents: [...], version: "3.0"}` |
 
 ---
 
-### Endpoint `/analyse` — Pipeline principal
+### Endpoint `/analyse` — Main pipeline
 
-**Paramètres** (multipart/form-data) :
-- `file` : image (JPG/PNG/BMP/TIFF) ou PDF
-- `document_type` : `"facture"` | `"lettre_de_change"` | `"auto"` (défaut)
-- `base_entities` : JSON string des entités GLM (optionnel)
+**Parameters** (multipart/form-data):
+- `file`: image (JPG/PNG/BMP/TIFF) or PDF
+- `document_type`: `"facture"` | `"lettre_de_change"` | `"auto"` (default)
+- `base_entities`: JSON string of the GLM entities (optional)
 
-**Séquence d'exécution** :
+**Execution sequence**:
 ```
 1. extractor_graph.invoke(file_path, document_type, base_entities)
-      → complete_entities (30+ champs enrichis)
+      → complete_entities (30+ enriched fields)
 
 2. auditor_graph.invoke(complete_entities, base_entities)
       → audit_report {verdict, checks, anomalies}
@@ -448,18 +448,18 @@ Second backend dédié à l'**orchestration des 4 agents LangGraph**. Reçoit le
       → analyst_report {alert_level, stats, insights}
 ```
 
-**Réponse** :
+**Response**:
 ```json
 {
-  "analyse_contextuelle": { "...30+ entités..." },
+  "analyse_contextuelle": { "...30+ entities..." },
   "audit": {
-    "status_validite": "VALIDÉ | ERREUR_CALCUL | DOUBLON | SIGNATURE_MANQUANTE | ...",
+    "status_validite": "VALIDATED | CALCULATION_ERROR | DUPLICATE | MISSING_SIGNATURE | ...",
     "checks": { "arithmetique": [...], "tva": {...}, "net_a_payer": {...}, "gouvernance": {...} }
   },
   "analyse": {
-    "alert_level": "NORMAL | ATTENTION | ALERTE",
+    "alert_level": "NORMAL | ATTENTION | ALERT",
     "anomalies": [...],
-    "insights": "Texte d'analyse généré par LLM..."
+    "insights": "LLM-generated analysis text..."
   },
   "file_type": "image | pdf_native | pdf_scanned",
   "status": "ok"
@@ -468,13 +468,13 @@ Second backend dédié à l'**orchestration des 4 agents LangGraph**. Reçoit le
 
 ---
 
-### Agent 1 — L'Extracteur
+### Agent 1 — The Extractor
 
-**Fichier** : `assistant/agents/extractor/graph.py` + `assistant/agents/extractor/tools.py`
+**File**: `assistant/agents/extractor/graph.py` + `assistant/agents/extractor/tools.py`
 
-**État** (`ExtractorState`) : `file_path`, `document_type`, `base_entities`, `file_type`, `native_text`, `vision_text`, `augmented_entities`, `visual_fields`, `complete_entities`, `messages`
+**State** (`ExtractorState`): `file_path`, `document_type`, `base_entities`, `file_type`, `native_text`, `vision_text`, `augmented_entities`, `visual_fields`, `complete_entities`, `messages`
 
-**Graphe LangGraph — 6 nœuds** :
+**LangGraph graph — 6 nodes**:
 
 ```
 detect_type
@@ -483,182 +483,182 @@ detect_type
             ├─ "native"  → extract_native (pdfplumber)
             └─ "vision"  → extract_vision (OCR.space → Gemini → Groq)
                     │
-              extract_entities (LLM texte : 30+ entités)
+              extract_entities (text LLM: 30+ entities)
                     │
-              extract_visual (LLM vision : signatures, cachets)
+              extract_visual (vision LLM: signatures, stamps)
                     │
-                merge_node (fusion + 6 post-traitements)
+                merge_node (merge + 6 post-processing steps)
 ```
 
-**5 outils** (`@tool`) :
+**5 tools** (`@tool`):
 
-| Outil | Ligne | Description |
+| Tool | Line | Description |
 |---|---|---|
 | `detect_file_type()` | l.261 | pdfplumber → `pdf_native` / `pdf_scanned` / `image` |
-| `extract_text_pdf_native()` | l.306 | pdfplumber : texte brut + tableaux |
+| `extract_text_pdf_native()` | l.306 | pdfplumber: raw text + tables |
 | `extract_text_vision()` | l.346 | OCR.space → Gemini 2.0-flash → Groq llama-4-scout-17b |
 | `extract_augmented_entities()` | l.879 | Groq qwen3-32b → HF Qwen2.5-7B → Gemini 1.5-flash |
 | `extract_visual_fields()` | l.661 | Groq llama-4-scout-17b → Gemini 2.0-flash |
 
-**Chaîne LLM texte** (`_call_llm()` l.49) :
-- Groq `qwen3-32b` (primaire, ultra-rapide)
-- HuggingFace `Qwen2.5-7B-Instruct` (fallback texte)
-- Google `Gemini 1.5-flash` (dernier recours)
+**Text LLM chain** (`_call_llm()` l.49):
+- Groq `qwen3-32b` (primary, ultra-fast)
+- HuggingFace `Qwen2.5-7B-Instruct` (text fallback)
+- Google `Gemini 1.5-flash` (last resort)
 
-**Prompt** : 17 règles métier — détection bilinguisme FR/AR, format DT à 3 décimales, matricule fiscal tunisien, FODEC, timbre 0.600 DT, reconnaissance traite vs facture.
+**Prompt**: 17 business rules — FR/AR bilingual detection, 3-decimal DT amount format, Tunisian tax ID format, FODEC (Tunisian development levy), 0.600 DT fiscal stamp duty, distinguishing a bill of exchange (traite) from an invoice.
 
-**6 post-traitements dans `merge_node`** :
-- Détection GPS dans les montants (pattern `JJ.MM.AAAA` confondu avec montant)
-- Restauration des millimes (3 décimales DT)
-- Détection EUR → signalement pour conversion
-- Validation timbre fiscal (standard tunisien : 0.600 DT)
-- Normalisation format date → `JJ/MM/AAAA`
-- Normalisation matricule fiscal → `XXXXXXXXX/A/X/XXX`
-
----
-
-### Agent 2 — L'Auditeur
-
-**Fichier** : `assistant/agents/auditor/graph.py` + `assistant/agents/auditor/checks.py`
-
-**Graphe LangGraph — 7 nœuds séquentiels** :
-
-| Nœud | Ligne | Fonction |
-|---|---|---|
-| `prepare_node` | l.98 | Normalise les types str→float, initialise l'état |
-| `arithmetic_node` | l.137 | `check_arithmetic_lines()` : QTE × PU × (1-remise%) ≈ Total_HT_ligne |
-| `tva_node` | l.146 | `validate_tva_globale()` : Σ(HT × taux_TVA) ≈ montant_TVA |
-| `net_node` | l.230 | `check_net_a_payer()` : base_HTVA + TVA + timbre ≈ net à payer |
-| `doublon_node` | l.293 | `check_doublon()` SQLite sur `(doc_type, doc_number)` |
-| `gouvernance_node` | l.300 | `check_governance()` : signatures + cachets |
-| `verdict_node` | l.308 | Agrège tous les checks, détermine le verdict final |
-
-**Tolérance arithmétique** : 0.005 DT (5 millimes) pour absorber les arrondis.
-
-**Spécificité `_parse_tva_rate()`** (l.11) : gère les erreurs OCR — `"2016"` → 20%, `"1906"` → 19%, valeurs > 100 → correction automatique.
-
-**Priorité du verdict** :
-```
-DOUBLON > SIGNATURE_MANQUANTE > ERREUR_CALCUL > ERREUR_TVA > ERREUR_NET_A_PAYER > VALIDÉ
-```
-
-**Check `check_net_a_payer()`** — Priorité base HTVA :
-1. `net_htva` extrait (NET H.TVA déjà avec remise + FODEC)
-2. `montant_ht + fodec` (si net_htva absent)
-3. `montant_ht` seul (si pas de FODEC)
-
-**Check gouvernance par type** :
-- **Facture** : `signature_presente` + `cachet_present`
-- **Lettre de change** : `signature_tire` + `signature_tireur` + `cachet_present` + `aval_bancaire` (optionnel)
+**6 post-processing steps in `merge_node`**:
+- GPS-in-amount detection (`DD.MM.YYYY` pattern mistaken for an amount)
+- Millime restoration (3-decimal DT)
+- EUR → flagged for conversion
+- Fiscal stamp duty validation (Tunisian standard: 0.600 DT)
+- Date format normalization → `DD/MM/YYYY`
+- Tax ID normalization → `XXXXXXXXX/A/X/XXX`
 
 ---
 
-### Agent 3 — L'Analyste
+### Agent 2 — The Auditor
 
-**Fichier** : `assistant/agents/analyst/graph.py` + `assistant/agents/analyst/checks.py`
+**File**: `assistant/agents/auditor/graph.py` + `assistant/agents/auditor/checks.py`
 
-**Graphe LangGraph — 5 nœuds** :
+**LangGraph graph — 7 sequential nodes**:
 
-| Nœud | Ligne | Fonction |
+| Node | Line | Function |
 |---|---|---|
-| `load_history` | l.61 | `list_documents(500)` SQLite → historique des 500 derniers docs |
+| `prepare_node` | l.98 | Normalizes str→float types, initializes the state |
+| `arithmetic_node` | l.137 | `check_arithmetic_lines()`: QTY × unit price × (1-discount%) ≈ line total excl. tax |
+| `tva_node` | l.146 | `validate_tva_globale()`: Σ(amount excl. tax × VAT rate) ≈ VAT amount |
+| `net_node` | l.230 | `check_net_a_payer()`: base excl. tax + VAT + stamp duty ≈ net payable |
+| `doublon_node` | l.293 | `check_doublon()` SQLite check on `(doc_type, doc_number)` |
+| `gouvernance_node` | l.300 | `check_governance()`: signatures + stamps |
+| `verdict_node` | l.308 | Aggregates every check, determines the final verdict |
+
+**Arithmetic tolerance**: 0.005 DT (5 millimes) to absorb rounding.
+
+**`_parse_tva_rate()` specifics** (l.11): handles OCR errors — `"2016"` → 20%, `"1906"` → 19%, values > 100 auto-corrected.
+
+**Verdict priority**:
+```
+DUPLICATE > MISSING_SIGNATURE > CALCULATION_ERROR > VAT_ERROR > NET_PAYABLE_ERROR > VALIDATED
+```
+
+**`check_net_a_payer()`** — base-excl.-tax priority:
+1. Extracted `net_htva` (net excl. tax, already including discount + FODEC)
+2. `montant_ht + fodec` (if `net_htva` is absent)
+3. `montant_ht` alone (if there's no FODEC)
+
+**Governance check by document type**:
+- **Invoice**: `signature_presente` (signature present) + `cachet_present` (stamp present)
+- **Bill of exchange**: `signature_tire` (drawee signature) + `signature_tireur` (drawer signature) + `cachet_present` + `aval_bancaire` (bank guarantee, optional)
+
+---
+
+### Agent 3 — The Analyst
+
+**File**: `assistant/agents/analyst/graph.py` + `assistant/agents/analyst/checks.py`
+
+**LangGraph graph — 5 nodes**:
+
+| Node | Line | Function |
+|---|---|---|
+| `load_history` | l.61 | `list_documents(500)` SQLite → history of the last 500 documents |
 | `compute_stats` | l.68 | `compute_supplier_stats()` + `compute_global_stats()` |
-| `detect_anomalies` | l.86 | Comparaison montant courant vs historique fournisseur et global |
-| `generate_insights` | l.107 | Génération texte analyse via Groq qwen3-32b |
-| `verdict` | l.162 | Calcul niveau d'alerte global |
+| `detect_anomalies` | l.86 | Compares the current amount against the supplier's and the global history |
+| `generate_insights` | l.107 | Generates the analysis text via Groq qwen3-32b |
+| `verdict` | l.162 | Computes the overall alert level |
 
-**Seuils de détection d'anomalies** :
+**Anomaly detection thresholds**:
 
-| Condition | Niveau |
+| Condition | Level |
 |---|---|
-| Premier document de ce fournisseur | ATTENTION |
-| Montant déviant de ≥ 30% de la moyenne fournisseur | ATTENTION |
-| Montant déviant de ≥ 60% de la moyenne fournisseur | ALERTE |
-| Montant > 3× la moyenne globale | ATTENTION |
+| First document from this supplier | ATTENTION |
+| Amount deviates ≥ 30% from the supplier's average | ATTENTION |
+| Amount deviates ≥ 60% from the supplier's average | ALERT |
+| Amount > 3× the global average | ATTENTION |
 
 ---
 
-### Agent 4 — Le Chatbot
+### Agent 4 — The Chatbot
 
-**Fichier** : `assistant/agents/chatbot/graph.py`
+**File**: `assistant/agents/chatbot/graph.py`
 
-**Graphe LangGraph — 3 nœuds** :
+**LangGraph graph — 3 nodes**:
 
-| Nœud | Ligne | Fonction |
+| Node | Line | Function |
 |---|---|---|
-| `understand_intent` | l.106 | Classification par mots-clés (entités / audit / analyse / général) |
-| `query_db` | l.120 | Enrichissement depuis SQLite si pertinent |
-| `generate_response` | l.128 | Génération réponse LLM avec contexte injecté |
+| `understand_intent` | l.106 | Keyword-based classification (entities / audit / analysis / general) |
+| `query_db` | l.120 | Enrichment from SQLite when relevant |
+| `generate_response` | l.128 | LLM response generation with injected context |
 
-**`_build_context_block()`** (l.56) : injecte dans le system prompt toutes les entités extraites + rapport audit + rapport analyste du document courant.
+**`_build_context_block()`** (l.56): injects the current document's extracted entities + audit report + analyst report into the system prompt.
 
-**Chaîne LLM chatbot** :
-- Groq `llama-3.3-70b` (primaire)
+**Chatbot LLM chain**:
+- Groq `llama-3.3-70b` (primary)
 - Groq `llama3-groq-70b-8192` (fallback)
-- Google `Gemini 2.0-flash` (dernier recours)
+- Google `Gemini 2.0-flash` (last resort)
 
 ---
 
 ---
 
-## Performances du modèle
+## Model performance
 
-| Métrique | Valeur |
+| Metric | Value |
 |---|---|
-| Taux de succès global | 94.2% |
-| F1-score global | 0.912 |
-| Précision CLIENT | 82.7% |
-| Précision FOURNISSEUR | 89.7% |
-| Précision NUMERO_FACTURE | 87.4% |
-| Précision DATE_FACTURE | 92.1% |
-| Précision MONTANT_TTC | 96.2% |
-| Dataset d'entraînement | 4 020 documents tunisiens |
-| Fine-tuning | LoRA mergé — zai-org/GLM-OCR |
+| Overall success rate | 94.2% |
+| Overall F1-score | 0.912 |
+| CLIENT precision | 82.7% |
+| FOURNISSEUR precision | 89.7% |
+| NUMERO_FACTURE precision | 87.4% |
+| DATE_FACTURE precision | 92.1% |
+| MONTANT_TTC precision | 96.2% |
+| Training dataset | 4,020 Tunisian documents |
+| Fine-tuning | LoRA merged — zai-org/GLM-OCR |
 
 ---
 
-## Stack technique complète
+## Full technical stack
 
-### Backend GLM-OCR
+### GLM-OCR Backend
 
-| Outil | Version | Rôle |
+| Tool | Version | Role |
 |---|---|---|
-| FastAPI | 0.115+ | API REST |
-| PyTorch | 2.4.1 | Inférence GPU/CPU |
+| FastAPI | 0.115+ | REST API |
+| PyTorch | 2.4.1 | GPU/CPU inference |
 | Transformers (HuggingFace) | git HEAD | GLM-OCR |
-| Pillow | — | Traitement image |
+| Pillow | — | Image processing |
 | Python | 3.11 | Runtime |
 
-### Backend Agents
+### Agents Backend
 
-| Outil | Version | Rôle |
+| Tool | Version | Role |
 |---|---|---|
-| FastAPI | 0.135+ | API REST |
-| LangGraph | — | Orchestration agents |
-| LangChain | — | Abstractions LLM |
-| pdfplumber | — | Extraction PDF natif |
-| SQLite3 | stdlib | Déduplication + historique |
+| FastAPI | 0.135+ | REST API |
+| LangGraph | — | Agent orchestration |
+| LangChain | — | LLM abstractions |
+| pdfplumber | — | Native PDF extraction |
+| SQLite3 | stdlib | Deduplication + history |
 | Groq SDK | — | qwen3-32b, llama-4-scout, llama-3.3 |
 | Google GenerativeAI | — | Gemini 2.0-flash, 1.5-flash |
 | HuggingFace Hub | — | Qwen2.5-7B-Instruct |
-| LangSmith | — | Observabilité |
+| LangSmith | — | Observability |
 | Python | 3.11 | Runtime |
 
 ### Frontend
 
-| Outil | Version | Rôle |
+| Tool | Version | Role |
 |---|---|---|
 | React | 18 | UI |
 | Vite | 5 | Bundler |
-| TypeScript | 5 | Typage |
-| Tailwind CSS | 3 | Styles utilitaires |
-| shadcn/ui | — | Composants primitifs |
+| TypeScript | 5 | Typing |
+| Tailwind CSS | 3 | Utility styles |
+| shadcn/ui | — | Primitive components |
 | framer-motion | 11 | Animations |
-| Recharts | 2 | Graphiques analytics |
-| React Router | 6 | Routing SPA |
-| TanStack Query | 5 | Cache requêtes HTTP |
-| lucide-react | — | Icônes |
+| Recharts | 2 | Analytics charts |
+| React Router | 6 | SPA routing |
+| TanStack Query | 5 | HTTP request cache |
+| lucide-react | — | Icons |
 
 ---
 
-*ODSINET — PFE 2026 · Goubaa Hanen · École Nationale d'Ingénieurs de Gabès (ENIG)*
+*ODSINET — Final-Year Project (PFE) 2026 · Goubaa Hanen · National School of Engineers of Gabès (ENIG)*
