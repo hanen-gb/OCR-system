@@ -1,13 +1,14 @@
 @echo off
+set "ROOTDIR=%~dp0..\..\"
 title LangGraph Studio Server — OCR PFE GLM
 setlocal
 
 REM ── Venv ────────────────────────────────────────────────────────────
 echo.
 echo [1/4] Activation du venv...
-call "%~dp0venv\Scripts\activate.bat"
+call "%ROOTDIR%venv\Scripts\activate.bat"
 if errorlevel 1 (
-    echo [ERREUR] venv introuvable : %~dp0venv\
+    echo [ERREUR] venv introuvable : %ROOTDIR%venv\
     pause & exit /b 1
 )
 echo       OK - Python: & python --version
@@ -30,7 +31,7 @@ if errorlevel 1 (
 REM ── Se placer dans assistant/ (ou est langgraph.json) ───────────────
 echo.
 echo [3/4] Demarrage du serveur LangGraph Studio...
-cd /d "%~dp0assistant"
+cd /d "%ROOTDIR%assistant"
 echo       Repertoire: %CD%
 echo       Config    : langgraph.json
 echo.

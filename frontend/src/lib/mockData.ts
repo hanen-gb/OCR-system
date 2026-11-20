@@ -195,6 +195,6 @@ export const metricsGLM = {
   gpu: "T4 (Modal)",
   avgInferenceMs: 65000,
   entitiesExtracted: 5,
-  successRate: 94.2,
-  f1Score: 0.912,
+  successRate: 97.4,
+  f1Score: 0.974,
 };

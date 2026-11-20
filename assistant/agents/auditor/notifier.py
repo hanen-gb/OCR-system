@@ -8,7 +8,7 @@ Déclenche un email d'alerte si au moins une condition est remplie :
   3. Nouveau document (jamais vu en base) ET montant TTC > ALERT_NOUVEAU_MONTANT_DT (défaut : 4000 DT)
 
 Variables à ajouter dans assistant/.env :
-  GMAIL_SENDER             adresse Gmail expéditrice (ex: toncompte@gmail.com)
+  GMAIL_SENDER             adresse Gmail expéditrice (ex: expediteur@gmail.com)
   GMAIL_APP_PASSWORD       mot de passe d'application Google (16 caractères)
   ALERT_EMAIL_TO           destinataire (ex: destinataire@example.com)
   ALERT_DEADLINE_DAYS      jours avant échéance pour alerter (défaut : 2)

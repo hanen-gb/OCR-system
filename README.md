@@ -1,8 +1,128 @@
-# ODSINET — GLM Multi-Agent OCR System · Entity Extraction on Tunisian Business Documents
+# ODSINET — Document AI for Invoices and Bills of Exchange
 
-**Final-Year Project (PFE) 2026 · Goubaa Hanen · ENIG Gabès**
+**Fine-tuned vision-language models and a multi-agent validation pipeline for business documents (French / Arabic / English)**
 
-A complete system for automatically extracting key entities from Tunisian invoices and bills of exchange, built on a **multi-agent LangGraph architecture**, a **GLM-OCR model fine-tuned with LoRA**, and a professional React interface.
+Final-year engineering project, 2026 — National Engineering School of Gabès (ENIG), carried out at Unilog (Sfax, Tunisia).
+
+The system reads an invoice or a Tunisian bill of exchange (*lettre de change*) and returns its key fields as
+structured JSON. A lightweight classifier routes each document to a dedicated **GLM-OCR** model fine-tuned with
+**LoRA**; a **LangGraph** multi-agent pipeline then enriches, audits and analyses the result, with a human-in-the-loop
+review step before anything is stored.
+
+---
+
+## Results
+
+All figures come from the evaluation notebooks in this repository and are computed on held-out test documents.
+
+| Model | Task | Test set | Main result |
+|---|---|---|---|
+| GLM-OCR + LoRA (invoices) | 5 fields | 801 invoices | **97.40 % field-level F1**, 89.89 % exact match (all fields correct) |
+| GLM-OCR + LoRA (bills of exchange) | 7 fields | 39 real scanned documents | **97.4 % of documents fully correct** (CER 0.1 %) |
+| GLM-OCR + LoRA (bills of exchange) | 7 fields | 1,065 documents incl. augmented and synthetic | 92.8 % mean field accuracy, 71.5 % fully correct |
+| MobileNetV2 | Invoice vs bill of exchange | 322 images | **99.69 % accuracy** (1 error) |
+
+Inference takes ≈ 4.9 s per invoice on a Tesla T4. Per-field results, protocols and limitations are given in the
+[evaluation notebooks](evaluation/).
+
+## Research approach
+
+1. **Zero-shot benchmark** ([`research/zero_shot_benchmark.ipynb`](research/zero_shot_benchmark.ipynb)) — ten models
+   compared without fine-tuning on 389 annotated real documents: classical OCR (Tesseract, docTR, TrOCR),
+   layout-aware models (LayoutLMv2, LayoutXLM) and vision-language models (GLM-OCR, Qwen2-VL-2B, Gemma 3 4B).
+   GLM-OCR ranked first on the composite score (0.655 vs 0.509 for the runner-up), which motivated its choice.
+2. **Parameter-efficient fine-tuning** ([`training/`](training/)) — LoRA adapters (r = 4, 0.25 % of the 1.1 B
+   parameters) trained on a T4 GPU over several resumable sessions; see the [training log](training/TRAINING_LOG.md).
+   A LayoutXLM token-classification model and a Qwen2-VL-7B QLoRA model were also trained during the project and
+   discarded in favour of GLM-OCR.
+3. **Evaluation** ([`evaluation/`](evaluation/)) — field-level precision, recall and F1, exact match, CER/WER, and a
+   breakdown by document origin (real, augmented, synthetic).
+4. **Agentic validation** ([`assistant/`](assistant/)) — LangGraph agents that extract additional fields, audit
+   arithmetic and duplicates deterministically, flag anomalies and answer questions about the documents.
+
+### Data
+
+The documents belong to the host company's clients and are **not distributed**; only code, metrics and model
+weights are published. Train/test splits (80/20) were made on the original documents **before** augmentation, so
+augmented versions of a test document never appear in training.
+
+| Dataset | Real | Augmented | Synthetic | Total | Train / test |
+|---|---|---|---|---|---|
+| Invoices | 194 | 2,910 | 900 | 4,004 | 3,203 / 801 |
+| Bills of exchange | 195 | 3,900 | 1,228 | 5,323 | 4,258 / 1,065 |
+
+Augmentation: geometric and photometric transforms with noise (albumentations, 15 variants per image).
+Synthetic documents were generated with Pillow and ReportLab. Annotation: Label Studio.
+
+### Limitations
+
+- There was no separate validation split: the test split was also used to select the best checkpoint during
+  training, so the reported scores may be slightly optimistic.
+- Only 39 real documents per type are available for testing.
+- The zero-shot F1 (regular expressions applied to raw model output) is not comparable with the field-level F1 of
+  the fine-tuned models.
+
+### Published models (Hugging Face)
+
+| Model | Repository |
+|---|---|
+| GLM-OCR invoices (LoRA merged) | [`Goubaa/glmocr-factures`](https://huggingface.co/Goubaa/glmocr-factures) |
+| GLM-OCR bills of exchange | [`Goubaa/glm-traite-tunis`](https://huggingface.co/Goubaa/glm-traite-tunis) |
+| MobileNetV2 classifier | [`Goubaa/mobilenet-classifier`](https://huggingface.co/Goubaa/mobilenet-classifier) |
+| LayoutXLM invoices (discarded baseline) | [`Goubaa/layoutxlm-factures`](https://huggingface.co/Goubaa/layoutxlm-factures) |
+
+---
+
+## Repository structure
+
+```
+├── research/      zero-shot benchmark notebook
+├── training/      fine-tuning notebooks (GLM-OCR invoices, bills of exchange, MobileNetV2) + training log
+├── evaluation/    evaluation notebooks with metrics
+├── backend/       GLM-OCR inference API (FastAPI, port 7860)
+├── modal_app.py   GPU deployment of the inference API on Modal
+├── assistant/     LangGraph agents + API (FastAPI, port 8002)
+├── local_api/     bridge between the interface and PostgreSQL (FastAPI, port 8001)
+├── frontend/      React + Vite interface with human-in-the-loop review (port 3000)
+├── src/, tests/   shared utilities and unit tests
+├── diagrams/      architecture, class, sequence and use-case diagrams
+└── scripts/       Windows launchers
+```
+
+## Getting started
+
+Requirements: Python 3.10+, Node.js 18+, PostgreSQL 16, and a GPU for local GLM-OCR inference (or a Modal account).
+
+```bash
+# 1. Agents backend
+cd assistant
+python -m venv venv && source venv/bin/activate      # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                                  # then fill in the API keys
+uvicorn api.main:app --host 0.0.0.0 --port 8002 --reload
+
+# 2. GLM-OCR inference API (local GPU)
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --port 7860
+
+# 3. Frontend
+cd frontend
+npm install
+cp .env.example .env
+npm run dev                                           # http://localhost:3000
+```
+
+### Deploying the inference API on Modal
+
+```bash
+pip install modal
+modal setup                       # authenticate once
+modal deploy modal_app.py         # T4 GPU, model weights cached in a Modal volume
+```
+
+Set `VITE_API_URL` in `frontend/.env` to the URL printed by `modal deploy`. The endpoint is public by default:
+protect it (for example with a Modal proxy token) before sharing it.
 
 ---
 
@@ -10,23 +130,13 @@ A complete system for automatically extracting key entities from Tunisian invoic
 
 - [Overall architecture](#overall-architecture)
 - [React Frontend](#react-frontend)
-  - [Technical stack](#frontend-technical-stack)
-  - [File structure](#file-structure)
-  - [Authentication](#authentication--authts--jwt-fastapi)
-  - [Global contexts](#global-contexts)
-  - [Pages](#pages)
-  - [Shared components](#shared-components)
 - [GLM-OCR Backend](#glm-ocr-backend--backendmainpy--port-7860)
-  - [Model](#model)
-  - [Inference pipeline](#inference-pipeline)
-  - [GLM endpoints](#glm-ocr-endpoints)
 - [Agents Backend](#agents-backend--assistantapimainpy--port-8002)
-  - [Endpoint /analyse](#endpoint-analyse--main-pipeline)
   - [Agent 1 — The Extractor](#agent-1--the-extractor)
   - [Agent 2 — The Auditor](#agent-2--the-auditor)
   - [Agent 3 — The Analyst](#agent-3--the-analyst)
   - [Agent 4 — The Chatbot](#agent-4--the-chatbot)
-- [Model performance](#model-performance)
+- [Full technical stack](#full-technical-stack)
 
 ---
 
@@ -335,8 +445,6 @@ Calls `POST :8002/chat` with the conversation history + context. Displays Agent 
 
 ---
 
----
-
 ## GLM-OCR BACKEND — `backend/main.py` · Port 7860
 
 ### Role
@@ -405,8 +513,6 @@ The first backend, dedicated to **Vision-Language GLM-OCR model inference** fine
 ```
 
 > `box: null` — GLM-OCR does not provide spatial coordinates (a known limitation compared to LayoutXLM).
-
----
 
 ---
 
@@ -599,20 +705,6 @@ DUPLICATE > MISSING_SIGNATURE > CALCULATION_ERROR > VAT_ERROR > NET_PAYABLE_ERRO
 
 ---
 
----
-
-## Model performance
-
-| Task | Metric | Value |
-|---|---|---|
-| Information extraction (fine-tuned GLM-OCR) | Field-level F1 (macro, 5 fields, 801 test invoices) | 97.40% |
-| Information extraction (fine-tuned GLM-OCR) | Exact match (all 5 fields correct) | 89.89% |
-| Document classification (MobileNetV2) | Accuracy | 99.69% |
-| Invoice dataset | Documents | 4,004 invoices (194 real, 2,910 augmented, 900 synthetic), split 80/20 before augmentation |
-| Fine-tuning | Method | LoRA merged — zai-org/GLM-OCR |
-
----
-
 ## Full technical stack
 
 ### GLM-OCR Backend
@@ -657,4 +749,4 @@ DUPLICATE > MISSING_SIGNATURE > CALCULATION_ERROR > VAT_ERROR > NET_PAYABLE_ERRO
 
 ---
 
-*ODSINET — Final-Year Project (PFE) 2026 · Goubaa Hanen · National School of Engineers of Gabès (ENIG)*
+*ODSINET — Final-Year Project (PFE) 2026 · Goubaa Hanen · National Engineering School of Gabès (ENIG)*

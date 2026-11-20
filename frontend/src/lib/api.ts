@@ -1,11 +1,11 @@
 /**
  * api.ts — Client pour le backend GLM-OCR déployé sur Modal
- * Backend : https://<workspace>--glmocr-backend-fastapi-app.modal.run
+ * Backend URL is read from VITE_API_URL (see frontend/.env.example).
  */
 
 export const DEFAULT_API_URL =
   import.meta.env.VITE_API_URL ||
-  "https://<workspace>--glmocr-backend-fastapi-app.modal.run";
+  "http://localhost:7860";
 
 export interface Entity {
   label: string;

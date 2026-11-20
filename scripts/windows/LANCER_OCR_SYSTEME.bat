@@ -1,14 +1,15 @@
 @echo off
+set "ROOTDIR=%~dp0..\..\"
 setlocal EnableDelayedExpansion
 title Lancement OCR Systeme - PFE GLM
-cd /d "%~dp0"
+cd /d "%ROOTDIR%"
 color 0A
 cls
 
 echo.
 echo  ================================================================
 echo    OCR Multi-Agent Pipeline  -  Lancement complet du systeme
-echo    PFE 2025  ^|  Goubaa Hanen  ^|  ENIG Gabes  ^|  ODSInet
+echo    PFE 2026  ^|  Goubaa Hanen  ^|  ENIG Gabes  ^|  ODSInet
 echo  ================================================================
 echo.
 echo  Composants :
@@ -28,10 +29,10 @@ pause >nul
 cls
 
 REM ── Variables chemins (pour eviter problemes guillemets avec espaces) ─────────
-set "ROOT=%~dp0"
-set "VENV=%~dp0venv\Scripts\activate.bat"
-set "FRONTEND=%~dp0frontend"
-set "ASSISTANT=%~dp0assistant"
+set "ROOT=%ROOTDIR%"
+set "VENV=%ROOTDIR%venv\Scripts\activate.bat"
+set "FRONTEND=%ROOTDIR%frontend"
+set "ASSISTANT=%ROOTDIR%assistant"
 
 REM ╔══════════════════════════════════════════════════════════════╗
 REM ║  [1]  PostgreSQL                                             ║
@@ -104,7 +105,7 @@ echo  [5/5]  Ouverture des onglets navigateur...
 echo.
 
 echo         Architecture SVG...
-start "" "%ROOT%architecture.svg"
+start "" "%ROOT%diagrams\architecture.svg"
 timeout /t 1 /nobreak >nul
 
 echo         Frontend React  http://localhost:3000

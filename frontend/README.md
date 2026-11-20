@@ -55,7 +55,7 @@ frontend/
 
 ### LoginPage
 - Authentification par username/password stockée en localStorage
-- Comptes prédéfinis : `admin` / `hanen` (rôle admin), autres utilisateurs (rôle user)
+- Compte de démonstration : `admin` (rôle admin) ; les autres comptes créés ont le rôle user
 - Session persistante via `localStorage`
 
 ### Dashboard
@@ -111,7 +111,7 @@ Deux onglets :
 ### SettingsPage
 - **Thème** : dark / light (persisté en localStorage)
 - **Langue** : Français / English (persisté en localStorage)
-- **Gestion utilisateurs** (admin uniquement) : liste des comptes, suppression, comptes `admin` et `hanen` protégés
+- **Gestion utilisateurs** (admin uniquement) : liste des comptes, suppression, compte `admin` protégé
 
 ### CalendarPage
 - Calendrier mensuel des échéances de lettres de change

@@ -37,36 +37,12 @@ const DEFAULT_USERS: UserProfile[] = [
   {
     username: "admin",
     password: "REDACTED",
-    displayName: "Administrateur",
+    displayName: "Administrator",
     email: "admin@example.com",
     role: "admin",
     avatarColor: AVATAR_COLORS[0],
-    bio: "Default administrator account.",
-    createdAt: "2025-01-01",
-    lang: "en",
-    theme: "dark",
-  },
-  {
-    username: "user",
-    password: "REDACTED",
-    displayName: "Goubaa Hanen",
-    email: "user@example.com",
-    role: "admin",
-    avatarColor: AVATAR_COLORS[1],
-    bio: "PFE 2025 student — ENIG Gabès.",
-    createdAt: "2025-01-01",
-    lang: "en",
-    theme: "dark",
-  },
-  {
-    username: "demo",
-    password: "REDACTED",
-    displayName: "Hanen Goubaa",
-    email: "admin@example.com",
-    role: "admin",
-    avatarColor: AVATAR_COLORS[2],
-    bio: "Administrator account.",
-    createdAt: "2026-06-23",
+    bio: "Demo administrator account (local demo only — change it before any deployment).",
+    createdAt: "2026-01-01",
     lang: "en",
     theme: "dark",
   },
@@ -196,7 +172,7 @@ export function changePassword(
 
 export function deleteUser(username: string): boolean {
   // Ne pas supprimer les admins par défaut
-  if (username === "admin" || username === "user" || username === "demo") return false;
+  if (username === "admin") return false;
   const users = loadUsers().filter((u) => u.username !== username);
   saveUsers(users);
   return true;

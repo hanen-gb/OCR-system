@@ -110,7 +110,7 @@ assistant/
 ├── data/
 │   └── documents.db                     ← Base SQLite (créée automatiquement)
 ├── .env                                 ← Clés API
-├── requirements_agent1.txt
+├── requirements.txt
 └── README_AGENT1_EXTRACTEUR.md
 ```
 
@@ -354,7 +354,7 @@ GOOGLE_API_KEY=AIzaSy...              # aistudio.google.com → Get API Key
 
 ```powershell
 cd assistant
-pip install -r requirements_agent1.txt
+pip install -r requirements.txt
 ```
 
 ---

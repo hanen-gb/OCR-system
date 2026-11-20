@@ -106,7 +106,7 @@ const SettingsPage = () => {
           </div>
           <div className="space-y-2">
             {users.map((u) => {
-              const isProtected = u.username === "admin" || u.username === "user" || u.username === "demo";
+              const isProtected = u.username === "admin";
               return (
                 <div
                   key={u.username}

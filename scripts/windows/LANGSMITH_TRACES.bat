@@ -1,6 +1,7 @@
 @echo off
+set "ROOTDIR=%~dp0..\..\"
 title LangSmith — OCR PFE GLM
-cd /d "%~dp0"
+cd /d "%ROOTDIR%"
 
 REM Lire le nom du projet depuis assistant\.env
 set "PROJECT=OCR-PFE-GLM"
