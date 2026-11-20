@@ -608,7 +608,7 @@ DUPLICATE > MISSING_SIGNATURE > CALCULATION_ERROR > VAT_ERROR > NET_PAYABLE_ERRO
 | Information extraction (fine-tuned GLM-OCR) | Field-level F1 (macro, 5 fields, 801 test invoices) | 97.40% |
 | Information extraction (fine-tuned GLM-OCR) | Exact match (all 5 fields correct) | 89.89% |
 | Document classification (MobileNetV2) | Accuracy | 99.69% |
-| Training dataset | Documents | 4,020 Tunisian business documents |
+| Invoice dataset | Documents | 4,004 invoices (194 real, 2,910 augmented, 900 synthetic), split 80/20 before augmentation |
 | Fine-tuning | Method | LoRA merged — zai-org/GLM-OCR |
 
 ---
