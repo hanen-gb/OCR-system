@@ -603,17 +603,13 @@ DUPLICATE > MISSING_SIGNATURE > CALCULATION_ERROR > VAT_ERROR > NET_PAYABLE_ERRO
 
 ## Model performance
 
-| Metric | Value |
-|---|---|
-| Overall success rate | 94.2% |
-| Overall F1-score | 0.912 |
-| CLIENT precision | 82.7% |
-| FOURNISSEUR precision | 89.7% |
-| NUMERO_FACTURE precision | 87.4% |
-| DATE_FACTURE precision | 92.1% |
-| MONTANT_TTC precision | 96.2% |
-| Training dataset | 4,020 Tunisian documents |
-| Fine-tuning | LoRA merged — zai-org/GLM-OCR |
+| Task | Metric | Value |
+|---|---|---|
+| Information extraction (fine-tuned GLM-OCR) | Field-level accuracy | 97.4% |
+| Named entity recognition | F1-score | 98.68% |
+| Document classification (MobileNetV2) | Accuracy | 99.69% |
+| Training dataset | Documents | 4,020 Tunisian business documents |
+| Fine-tuning | Method | LoRA merged — zai-org/GLM-OCR |
 
 ---
 

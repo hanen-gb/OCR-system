@@ -63,7 +63,6 @@ assistant/
 │   ├── connection.py            # Pool PostgreSQL (psycopg2)
 │   └── repository.py            # CRUD — documents, factures, traites
 ├── state.py                     # TypedDict partagés (ExtractorState, AuditorState…)
-├── main.py                      # Point d'entrée uvicorn
 └── .env                         # Clés API (ne pas committer)
 ```
 
