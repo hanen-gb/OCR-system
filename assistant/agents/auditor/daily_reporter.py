@@ -1,6 +1,6 @@
 """
-Rapport consolidé quotidien — envoyé chaque matin à 8h00.
-Récapitule tous les documents présents en base PostgreSQL.
+Daily consolidated report — sent every morning at 8:00.
+Summarises all the documents stored in PostgreSQL.
 """
 
 import smtplib
@@ -22,9 +22,9 @@ def _fmt_montant(val) -> str:
 
 
 def send_daily_report() -> bool:
-    """Génère et envoie le rapport consolidé quotidien par email."""
+    """Builds and sends the daily consolidated report by e-mail."""
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
-        print("[DAILY] Email désactivé (GMAIL_SENDER/GMAIL_APP_PASSWORD manquants dans .env)")
+        print("[DAILY] E-mail disabled (GMAIL_SENDER/GMAIL_APP_PASSWORD missing in .env)")
         return False
 
     docs = get_documents_pg(limit=500)
@@ -44,7 +44,7 @@ def send_daily_report() -> bool:
     total_montant = sum(montants) if montants else 0.0
     moy_montant   = total_montant / len(montants) if montants else 0.0
 
-    # Lignes des documents récents (max 25)
+    # Rows of the recent documents (max 25)
     lignes = ""
     for d in docs_recent[:25]:
         t   = ("TRAITE" if _is_traite_type(d.get("doc_type")) else "FACTURE")
@@ -53,11 +53,11 @@ def send_daily_report() -> bool:
         mnt = _fmt_montant(d.get("montant"))
         lignes += f"  • {t:7s} | N° {num:18s} | {fou:22s} | {mnt}\n"
     if not lignes:
-        lignes = "  Aucun document traité dans les dernières 24h.\n"
+        lignes = "  No document processed in the last 24 hours.\n"
 
     nb_recents = len(docs_recent)
     date_str   = maintenant.strftime("%d/%m/%Y")
-    now_str    = maintenant.strftime("%d/%m/%Y à %H:%M")
+    now_str    = maintenant.strftime("%d/%m/%Y at %H:%M")
 
     corps = f"""\
 Bonjour,
@@ -103,11 +103,11 @@ Système de Gestion Documentaire — OCR PFE GLM
             server.starttls()
             server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_SENDER, ALERT_EMAIL_TO, msg.as_string())
-        print(f"[DAILY] Rapport quotidien envoyé à {ALERT_EMAIL_TO}")
+        print(f"[DAILY] Daily report sent to {ALERT_EMAIL_TO}")
         return True
     except smtplib.SMTPAuthenticationError:
-        print("[DAILY] Authentification Gmail échouée — vérifier GMAIL_APP_PASSWORD")
+        print("[DAILY] Gmail authentication failed — check GMAIL_APP_PASSWORD")
         return False
     except Exception as exc:
-        print(f"[DAILY] Échec envoi rapport quotidien : {exc}")
+        print(f"[DAILY] Daily report sending failed: {exc}")
         return False

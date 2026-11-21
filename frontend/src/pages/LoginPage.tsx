@@ -152,7 +152,7 @@ const LoginPage = () => {
     const user = login(loginUser.trim(), loginPwd);
     setLoading(false);
     if (!user) { setError("Invalid username or password."); return; }
-    // Obtenir un JWT FastAPI pour les appels protégés (silencieux si agent hors ligne)
+    // Get a FastAPI JWT for protected calls (silent if the agent is offline)
     fetchToken(user.username, user.role).catch(() => {});
     navigate("/");
   };

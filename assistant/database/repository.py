@@ -1,11 +1,11 @@
 """
-Opérations CRUD PostgreSQL — documents, factures, traites.
+PostgreSQL CRUD operations — documents, invoices, bills of exchange.
 
 Fonction principale : save_document()
-  Appelée après Agent 1 + Agent 2 avec les résultats complets.
-  Insère dans documents + factures OU traites selon le type.
+  Called after Agent 1 + Agent 2 with the complete results.
+  Inserts into documents + invoices OR bills depending on the type.
 
-notes_agent stocke le JSON complet des agents (entités + rapport d'audit).
+notes_agent stores the full JSON of the agents (entities + audit report).
 """
 
 import json
@@ -17,10 +17,10 @@ from .connection import get_conn
 
 
 def _safe_date(val: str | None):
-    """Tente de parser une date chaine vers un objet date Python, ou None."""
+    """Tries to parse a date string into a Python date object, or None."""
     if not val:
         return None
-    # %d-%m-%y couvre les dates type "12-11-22" (ex: factures NETLINK)
+    # %d-%m-%y covers dates such as "12-11-22"
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"):
         try:
             return datetime.strptime(val.strip(), fmt).date()
@@ -31,12 +31,12 @@ def _safe_date(val: str | None):
 
 def _safe_float(val) -> float | None:
     """
-    Convertit une chaine montant en float, en gerant les deux conventions :
+    Converts an amount string to a float, handling both conventions:
       - "4 488,00"   (espace milliers, virgule decimale - convention FR/EU)
       - "4,498.800"  (virgule milliers, point decimale - convention US/mixte
                        vue sur certaines factures, ex: NETLINK)
-    Regle : le separateur le plus a DROITE est le decimal, l'autre (s'il existe)
-    est un separateur de milliers a supprimer.
+    Rule: the RIGHT-most separator is the decimal one; the other one (if any)
+    is a thousands separator to remove.
     """
     if val is None:
         return None
@@ -66,13 +66,13 @@ def save_document(
     processing_time_s: float | None = None,
 ) -> int | None:
     """
-    Sauvegarde un document traité dans PostgreSQL.
+    Saves a processed document to PostgreSQL.
 
-    1. Insère dans `documents`  → retourne doc_id
-    2. Si FACTURE               → insère dans `factures`
-    3. Si TRAITE                → insère dans `traites`
+    1. Inserts into `documents`  → returns doc_id
+    2. If INVOICE                → inserts into `factures`
+    3. If BILL OF EXCHANGE       → inserts into `traites`
 
-    Retourne doc_id (int) ou None si PostgreSQL non disponible.
+    Returns doc_id (int), or None if PostgreSQL is unavailable.
     """
     doc_type_raw = (entities.get("_document_type") or "facture").lower()
     is_traite    = "lettre" in doc_type_raw or "change" in doc_type_raw or "traite" in doc_type_raw
@@ -101,7 +101,7 @@ def save_document(
         with get_conn() as conn:
             with conn.cursor() as cur:
 
-                # 1 — Insérer dans documents
+                # 1 — Insert into documents
                 cur.execute(
                     """
                     INSERT INTO documents
@@ -134,7 +134,7 @@ def save_document(
                         (doc_id, numero, date_val, fournisseur, client, montant_ttc, notes),
                     )
 
-                # 2b — Traite (lettre de change)
+                # 2b — Bill of exchange
                 else:
                     numero        = entities.get("num_lettre") or entities.get("numero_lettre")
                     date_echeance = _safe_date(entities.get("date_echeance"))
@@ -157,12 +157,12 @@ def save_document(
         return doc_id
 
     except Exception as e:
-        print(f"[DB] Échec sauvegarde PostgreSQL : {e}")
+        print(f"[DB] PostgreSQL save failed: {e}")
         return None
 
 
 def get_documents_pg(limit: int = 50) -> list[dict]:
-    """Retourne les derniers documents avec leurs données principales."""
+    """Returns the latest documents with their main data."""
     try:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -191,8 +191,8 @@ def get_documents_pg(limit: int = 50) -> list[dict]:
                     (limit,),
                 )
                 rows = cur.fetchall()
-        # psycopg2 renvoie les colonnes DECIMAL en decimal.Decimal — on convertit en
-        # float pour que les comparaisons/calculs en aval (Agent 2, Agent 3) fonctionnent.
+        # psycopg2 returns DECIMAL columns as decimal.Decimal — converted to
+        # float so that the downstream comparisons/computations (Agent 2, Agent 3) work.
         docs = []
         for r in rows:
             d = dict(r)
@@ -201,12 +201,12 @@ def get_documents_pg(limit: int = 50) -> list[dict]:
             docs.append(d)
         return docs
     except Exception as e:
-        print(f"[DB] get_documents_pg erreur : {e}")
+        print(f"[DB] get_documents_pg error: {e}")
         return []
 
 
 def get_facture(doc_id: int) -> dict | None:
-    """Retourne la facture complète (avec notes_agent JSON parsé)."""
+    """Returns the full invoice (with the parsed notes_agent JSON)."""
     try:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -223,7 +223,7 @@ def get_facture(doc_id: int) -> dict | None:
             pass
         return result
     except Exception as e:
-        print(f"[DB] get_facture erreur : {e}")
+        print(f"[DB] get_facture error: {e}")
         return None
 
 
@@ -234,8 +234,8 @@ def _is_traite_doc_type(doc_type: str | None) -> bool:
 
 def check_doublon_pg(doc_type: str | None, doc_number: str | None) -> dict:
     """
-    Vérifie si un document avec ce numéro existe déjà en base PostgreSQL
-    (remplace l'ancienne détection de doublons SQLite).
+    Checks whether a document with this number already exists in PostgreSQL
+    (replaces the former SQLite duplicate detection).
 
     Retourne :
       {"status": "NOUVEAU",  "doc_number": ...}
@@ -243,7 +243,7 @@ def check_doublon_pg(doc_type: str | None, doc_number: str | None) -> dict:
       {"status": "INCONNU",  "detail": "..."}
     """
     if not doc_number:
-        return {"status": "INCONNU", "detail": "Numéro de document absent"}
+        return {"status": "INCONNU", "detail": "Document number missing"}
 
     is_traite = _is_traite_doc_type(doc_type)
     try:
@@ -275,7 +275,7 @@ def check_doublon_pg(doc_type: str | None, doc_number: str | None) -> dict:
                     )
                 row = cur.fetchone()
     except Exception as e:
-        print(f"[DB] check_doublon_pg erreur : {e}")
+        print(f"[DB] check_doublon_pg error: {e}")
         return {"status": "INCONNU", "detail": str(e)}
 
     if row:
@@ -286,13 +286,13 @@ def check_doublon_pg(doc_type: str | None, doc_number: str | None) -> dict:
             "first_seen" : created.isoformat() if created else None,
             "fournisseur": row.get("fournisseur"),
             "montant"    : float(row["montant"]) if row.get("montant") is not None else None,
-            "detail"     : f"Déjà traité le {created.strftime('%d/%m/%Y') if created else '?'}",
+            "detail"     : f"Already processed on {created.strftime('%d/%m/%Y') if created else '?'}",
         }
     return {"status": "NOUVEAU", "doc_number": doc_number}
 
 
 def delete_document_pg(doc_type: str | None, doc_number: str) -> bool:
-    """Supprime un document de PostgreSQL (cascade vers factures/traites)."""
+    """Deletes a document from PostgreSQL (cascade to factures/traites)."""
     is_traite = _is_traite_doc_type(doc_type)
     table     = "traites" if is_traite else "factures"
     try:
@@ -305,12 +305,12 @@ def delete_document_pg(doc_type: str | None, doc_number: str) -> bool:
                 deleted = cur.rowcount > 0
         return deleted
     except Exception as e:
-        print(f"[DB] delete_document_pg erreur : {e}")
+        print(f"[DB] delete_document_pg error: {e}")
         return False
 
 
 def clear_documents_pg() -> int:
-    """Vide entièrement documents/factures/traites (cascade). Retourne le nb de documents supprimés."""
+    """Empties documents/invoices/bills (cascade). Returns the number of deleted documents."""
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -318,12 +318,12 @@ def clear_documents_pg() -> int:
                 count = cur.rowcount
         return count
     except Exception as e:
-        print(f"[DB] clear_documents_pg erreur : {e}")
+        print(f"[DB] clear_documents_pg error: {e}")
         return 0
 
 
 def get_traite(doc_id: int) -> dict | None:
-    """Retourne la traite complète (avec notes_agent JSON parsé)."""
+    """Returns the full bill of exchange (with the parsed notes_agent JSON)."""
     try:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -340,5 +340,5 @@ def get_traite(doc_id: int) -> dict | None:
             pass
         return result
     except Exception as e:
-        print(f"[DB] get_traite erreur : {e}")
+        print(f"[DB] get_traite error: {e}")
         return None

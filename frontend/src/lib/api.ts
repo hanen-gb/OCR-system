@@ -1,5 +1,5 @@
 /**
- * api.ts — Client pour le backend GLM-OCR déployé sur Modal
+ * api.ts — Client for the GLM-OCR backend deployed on Modal
  * Backend URL is read from VITE_API_URL (see frontend/.env.example).
  */
 
@@ -18,7 +18,7 @@ export interface PredictResult {
   entities: Entity[];
   full_text: string;
   timing: { inference_ms: number; total_ms: number };
-  doc_type?: string;                  // "factures" | "traites" — renvoyé par le classificateur
+  doc_type?: string;                  // "factures" | "traites" — returned by the classifier
   classification_confidence?: number; // 0–1
 }
 
@@ -28,17 +28,17 @@ export interface HealthResult {
   gpu: string;
 }
 
-/** Retourne l'URL de l'API stockée dans localStorage (ou la valeur par défaut) */
+/** Returns the API URL stored in localStorage (or the default value) */
 export function getApiUrl(): string {
   return localStorage.getItem("glmocr_api_url") || DEFAULT_API_URL;
 }
 
-/** Sauvegarde une URL personnalisée */
+/** Saves a custom URL */
 export function setApiUrl(url: string): void {
   localStorage.setItem("glmocr_api_url", url);
 }
 
-/** Crée un signal d'abandon avec timeout compatible tous navigateurs */
+/** Creates an abort signal with a timeout, compatible with all browsers */
 function makeTimeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
@@ -46,8 +46,8 @@ function makeTimeoutSignal(ms: number): { signal: AbortSignal; clear: () => void
 }
 
 /**
- * Redimensionne une image côté client avant envoi.
- * Une photo de caméra (4000x3000, ~8MB) devient ~200KB après resize à 1024px.
+ * Resizes an image on the client before sending it.
+ * A camera photo (4000x3000, ~8 MB) becomes ~200 KB after resizing to 1024 px.
  */
 async function resizeImage(file: File, maxPx = 1024): Promise<File> {
   return new Promise((resolve) => {
@@ -56,7 +56,7 @@ async function resizeImage(file: File, maxPx = 1024): Promise<File> {
     img.onload = () => {
       URL.revokeObjectURL(url);
       const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-      if (scale === 1) { resolve(file); return; }           // déjà assez petit
+      if (scale === 1) { resolve(file); return; }           // already small enough
       const canvas = document.createElement("canvas");
       canvas.width  = Math.round(img.width  * scale);
       canvas.height = Math.round(img.height * scale);
@@ -74,7 +74,7 @@ async function resizeImage(file: File, maxPx = 1024): Promise<File> {
   });
 }
 
-/** Vérifie si le backend répond */
+/** Checks whether the backend responds */
 export async function checkHealth(): Promise<HealthResult> {
   const { signal, clear } = makeTimeoutSignal(10_000);
   try {
@@ -88,13 +88,13 @@ export async function checkHealth(): Promise<HealthResult> {
   }
 }
 
-/** Envoie une image et retourne les entités extraites */
+/** Sends an image and returns the extracted entities */
 export async function predictInvoice(
   file: File,
   onProgress?: (step: number) => void,
   documentType: "auto" | "factures" | "traites" = "auto",
 ): Promise<PredictResult> {
-  // Redimensionne avant envoi : photo caméra 8MB → ~200KB
+  // Resize before sending: 8 MB camera photo → ~200 KB
   const resized = await resizeImage(file);
 
   const formData = new FormData();
@@ -103,11 +103,11 @@ export async function predictInvoice(
     formData.append("document_type", documentType);
   }
 
-  // Wake Lock : empêche l'écran mobile de s'éteindre pendant l'analyse
+  // Wake Lock: keeps the mobile screen on during the analysis
   let wakeLock: WakeLockSentinel | null = null;
   try {
     if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
-  } catch { /* non supporté sur certains navigateurs */ }
+  } catch { /* not supported by some browsers */ }
 
   const steps = [1, 2, 3, 4];
   let stepIdx = 0;
@@ -144,8 +144,8 @@ export async function predictInvoice(
 }
 
 /**
- * Ré-audite un JSON d'entités déjà extrait, sans relancer l'extraction (Agent 1).
- * Utilisé après une correction manuelle de l'analyse contextuelle (HITL).
+ * Re-audits an already extracted JSON of entities, without re-running the extraction (Agent 1).
+ * Used after a manual correction of the contextual analysis (HITL).
  */
 export async function reauditEntities(
   entities: Record<string, unknown>,
@@ -165,8 +165,8 @@ export async function reauditEntities(
 }
 
 /**
- * Ré-analyse (Agent 3) un JSON d'entités déjà extrait, sans relancer l'extraction.
- * À appeler avec le rapport d'audit obtenu via reauditEntities().
+ * Re-analyses (Agent 3) an already extracted JSON of entities, without re-running the extraction.
+ * Call it with the audit report returned by reauditEntities().
  */
 export async function reanalyzeEntities(
   entities: Record<string, unknown>,
@@ -205,13 +205,13 @@ export const TRAITE_LABELS = [
 ] as const;
 export type TraiteLabel = (typeof TRAITE_LABELS)[number];
 
-// ── Agent Extracteur — Analyse Contextuelle et Complémentaire ─────────────────
+// ── Extractor Agent — contextual and complementary analysis ───────────────────
 
-/** URL du serveur local de l'agent (lancé via uvicorn) */
+/** URL of the local agent server (started with uvicorn) */
 export const AGENT_API_URL =
   import.meta.env.VITE_AGENT_URL || "http://localhost:8002";
 
-// ── Gestion du token JWT (émis par POST /token de FastAPI) ───────────────────
+// ── JWT handling (issued by POST /token of FastAPI) ──────────────────────────
 
 const TOKEN_KEY = "odsinet_agent_token";
 
@@ -228,9 +228,9 @@ export function clearAgentToken(): void {
 }
 
 /**
- * Appelle POST /token sur FastAPI et stocke le JWT dans localStorage.
- * À appeler une fois après un login réussi.
- * Silencieux si le serveur agent est hors ligne.
+ * Calls POST /token on FastAPI and stores the JWT in localStorage.
+ * Call it once after a successful login.
+ * Silent if the agent server is offline.
  */
 export async function fetchToken(username: string, role: string): Promise<boolean> {
   try {
@@ -250,8 +250,8 @@ export async function fetchToken(username: string, role: string): Promise<boolea
 }
 
 /**
- * Supprime un document de la base PostgreSQL (annule un doublon).
- * Lève une erreur si le token est absent ou si le rôle n'est pas admin.
+ * Deletes a document from the PostgreSQL database (removes a duplicate).
+ * Throws if the token is missing or the role is not admin.
  */
 export async function deleteDocument(docType: string, docNumber: string): Promise<boolean> {
   const token = getAgentToken();
@@ -260,8 +260,8 @@ export async function deleteDocument(docType: string, docNumber: string): Promis
     method : "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (res.status === 403) throw new Error("Accès refusé — rôle admin requis");
-  if (res.status === 401) throw new Error("Token expiré — veuillez vous reconnecter");
+  if (res.status === 403) throw new Error("Access denied — admin role required");
+  if (res.status === 401) throw new Error("Session expired — please log in again");
   return res.ok;
 }
 
@@ -355,13 +355,13 @@ export interface AnalystReport {
 }
 
 export interface AgentAnalysisResult {
-  /** Toutes les entités extraites par l'agent LangGraph */
+  /** All the entities extracted by the LangGraph agent */
   analyse_contextuelle: Record<string, unknown>;
   /** Rapport d'audit Agent 2 */
   audit?: AuditReport;
   /** Rapport d'analyse comportementale Agent 3 */
   analyse?: AnalystReport;
-  /** Type de fichier détecté : "image" | "pdf_native" | "pdf_scanned" */
+  /** Detected file type: "image" | "pdf_native" | "pdf_scanned" */
   file_type?: string;
   status: "ok" | "error";
   error?: string | null;
@@ -416,9 +416,9 @@ export async function sendChatMessage(
 }
 
 /**
- * Envoie un document à l'agent extracteur local (port 8002).
- * Tourne en PARALLÈLE avec predictInvoice — ne bloque pas le flux principal.
- * Retourne null si l'agent n'est pas disponible (échoue silencieusement).
+ * Sends a document to the local extractor agent (port 8002).
+ * Runs IN PARALLEL with predictInvoice — does not block the main flow.
+ * Returns null if the agent is unavailable (fails silently).
  */
 export async function analyseDocument(
   file: File,
@@ -446,8 +446,8 @@ export async function analyseDocument(
       signal,
     });
     clear();
-    // 500 = serveur tourne mais erreur interne → retourne l'erreur sans throw
-    // Network error = serveur inaccessible → throw (catch dans UploadPage)
+    // 500 = server running but internal error → return the error without throwing
+    // Network error = server unreachable → throw (caught in UploadPage)
     if (!res.ok) {
       const body = await res.json().catch(() => ({ status: "error", error: `HTTP ${res.status}` }));
       return { analyse_contextuelle: {}, file_type: undefined, status: "error", ...body } as AgentAnalysisResult;

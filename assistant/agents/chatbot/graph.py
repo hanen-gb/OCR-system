@@ -1,5 +1,5 @@
 """
-Sous-graphe LangGraph — Agent 4 : Le Chatbot
+LangGraph sub-graph — Agent 4: the Chatbot
 
 Flux :
     START → understand_intent
@@ -10,11 +10,11 @@ Flux :
                 ↓
               END
 
-Le chatbot a accès au contexte du document courant :
-  - complete_entities  (entités extraites par Agent 1)
-  - audit_report       (résultats Agent 2)
+The chatbot has access to the context of the current document:
+  - complete_entities  (entities extracted by Agent 1)
+  - audit_report       (Agent 2 results)
   - analyst_report     (analyse Agent 3)
-  - db_context         (documents récents de la base)
+  - db_context         (recent documents from the database)
   - messages           (historique de conversation LangGraph)
 """
 
@@ -59,7 +59,7 @@ def _build_context_block(
     analyst  : dict,
     db_ctx   : list,
 ) -> str:
-    """Construit le bloc contexte injecté dans le system prompt."""
+    """Builds the context block injected into the system prompt."""
     parts = []
 
     if entities:
@@ -104,7 +104,7 @@ def _build_context_block(
 # ── Nœuds ─────────────────────────────────────────────────────────────────────
 
 def understand_intent_node(state: ChatbotState) -> dict:
-    """Classifie l'intention pour savoir si une requête DB est nécessaire."""
+    """Classifies the intent to decide whether a database query is needed."""
     messages = state.get("messages") or []
     if not messages:
         return {"intent": "general"}
@@ -113,20 +113,20 @@ def understand_intent_node(state: ChatbotState) -> dict:
     db_keywords = ["combien", "historique", "tous les", "liste", "base", "enregistrés",
                    "documents", "fournisseurs", "total", "statistique"]
     intent = "base_donnees" if any(k in last_msg for k in db_keywords) else "document"
-    print(f"[CHATBOT] Intent détecté : {intent}")
+    print(f"[CHATBOT] Intent detected: {intent}")
     return {"intent": intent}
 
 
 def query_db_node(state: ChatbotState) -> dict:
-    """Charge des données complémentaires depuis PostgreSQL si nécessaire."""
+    """Loads additional data from PostgreSQL when needed."""
     from database import get_documents_pg
     db_ctx = get_documents_pg(limit=50)
-    print(f"[CHATBOT] DB requêtée : {len(db_ctx)} documents")
+    print(f"[CHATBOT] Database queried: {len(db_ctx)} documents")
     return {"db_context": db_ctx}
 
 
 def generate_response_node(state: ChatbotState) -> dict:
-    """Génère la réponse du chatbot via LLM (Groq → Gemini fallback)."""
+    """Generates the chatbot answer with an LLM (Groq → Gemini fallback)."""
     messages    = list(state.get("messages") or [])
     entities    = state.get("context_entities") or {}
     audit       = state.get("context_audit") or {}
@@ -156,7 +156,7 @@ def generate_response_node(state: ChatbotState) -> dict:
                     max_tokens  = 1024,
                 )
                 reply = llm.invoke(llm_messages).content.strip()
-                print(f"[CHATBOT] Réponse via {model} ({len(reply)} chars)")
+                print(f"[CHATBOT] Answer from {model} ({len(reply)} chars)")
                 break
             except Exception as e:
                 print(f"[CHATBOT] {model} → {str(e)[:80]}")
@@ -176,15 +176,15 @@ def generate_response_node(state: ChatbotState) -> dict:
                         max_tokens     = 1024,
                     )
                     reply = llm.invoke(llm_messages).content.strip()
-                    print(f"[CHATBOT] Réponse via {gem_model} (Gemini fallback)")
+                    print(f"[CHATBOT] Answer from {gem_model} (Gemini fallback)")
                     break
                 except Exception as e:
                     print(f"[CHATBOT] {gem_model} → {str(e)[:80]}")
                     continue
 
     if not reply:
-        reply = ("Je suis désolé, je ne peux pas répondre pour le moment — "
-                 "aucun LLM disponible (vérifier les clés API dans .env).")
+        reply = ("Sorry, I cannot answer right now — "
+                 "no LLM is available (check the API keys in .env).")
 
     return {
         "messages": [AIMessage(content=reply)],

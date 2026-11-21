@@ -1,0 +1,73 @@
+@startuml sequence_diagram
+skinparam backgroundColor              #F8FAFC
+skinparam ParticipantBackgroundColor   #EEF2FF
+skinparam ParticipantBorderColor       #4F46E5
+skinparam ActorBackgroundColor         #DBEAFE
+skinparam ActorBorderColor             #2563EB
+skinparam ArrowColor                   #4F46E5
+skinparam ArrowFontSize                11
+skinparam SequenceLifeLineBorderColor  #94A3B8
+
+actor "User" as U
+participant "Frontend\n(React / Vite)"     as F
+participant "Inference API\n(Modal, T4)"   as G
+participant "Agents API\n(FastAPI :8002)"  as API
+participant "Agent 1\nExtractor"           as A1
+participant "Agent 2\nAuditor"             as A2
+participant "Agent 3\nAnalyst"             as A3
+participant "Agent 4\nChatbot"             as A4
+database "PostgreSQL"                      as PG
+participant "Gmail SMTP"                   as MAIL
+
+== 0. Authentication ==
+U   ->  F   : username + password
+F   ->  F   : local login (localStorage)
+F   ->  API : POST /token
+API --> F   : signed JWT (HS256)
+
+== 1. Classification and extraction ==
+U  ->  F  : upload a document (image / PDF)
+F  ->  G  : POST /predict
+G  ->  G  : MobileNetV2 → document type
+G  ->  G  : GLM-OCR (invoice or bill model) → fields
+G  --> F  : {entities, doc_type, timing}
+F  --> U  : editable fields
+U  ->  F  : review and correct the fields
+
+== 2. Agents ==
+F   ->  API : POST /analyse (file + corrected fields)
+API ->  A1  : extraction: OCR / native PDF → LLM → vision → merge
+A1  --> API : complete_entities
+API ->  A2  : audit
+A2  ->  PG  : duplicate check (document number)
+PG  --> A2  : result
+A2  ->  A2  : arithmetic, amount in words, due date, RIB, signatures → verdict
+alt alert condition met
+  A2 -> MAIL : alert e-mail
+end
+A2  --> API : audit_report + status_validite
+API ->  A3  : analysis
+A3  ->  PG  : supplier history (last 500 documents)
+A3  ->  A3  : statistics, anomalies, LLM comment
+A3  --> API : analyst_report + alert_level
+API --> F   : complete report
+
+opt correction after the report
+  U  ->  F   : edit the fields
+  F  ->  API : POST /audit, POST /analyst (no re-extraction)
+  API --> F  : updated reports
+end
+
+F   ->  API : POST /save
+API ->  PG  : INSERT documents + factures / traites
+F   --> U   : report saved
+
+== 3. Chatbot (optional) ==
+U   ->  F   : question
+F   ->  API : POST /chat (question + document context)
+API ->  A4  : understand_intent
+opt question about the history
+  A4 -> PG  : query
+end
+A4  --> F   : answer
+@enduml

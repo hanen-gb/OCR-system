@@ -18,7 +18,7 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-/** Redirige vers /login si non authentifié */
+/** Redirects to /login when not authenticated */
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;

@@ -92,7 +92,7 @@ const SettingsPage = () => {
         </div>
       </motion.div>
 
-      {/* Gestion utilisateurs — admin seulement */}
+      {/* User management — admin only */}
       {session?.role === "admin" && (
         <motion.div {...fade(0.12)} className="glass-card rounded-lg p-5">
           <div className="flex items-start gap-3 mb-4">

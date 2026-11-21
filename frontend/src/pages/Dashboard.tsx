@@ -63,28 +63,28 @@ const KpiCard = ({ label, value, sub, icon: Icon, delay = 0, accent }: KpiCardPr
   </motion.div>
 );
 
-// Détecte si un document historique est une traite ou une facture.
-// Le classificateur (MobileNet/Modal) peut se tromper sur doc_type — on laisse
-// les signaux les plus fiables (labels d'entités réellement extraites, puis nom
-// de fichier) corriger une éventuelle mauvaise classification avant de se fier
-// au doc_type brut, qui n'est consulté qu'en dernier recours.
+// Detects whether a history document is a bill of exchange or an invoice.
+// The classifier (MobileNet/Modal) can be wrong about doc_type — the most
+// reliable signals (labels of the entities actually extracted, then the file
+// name) are allowed to correct a misclassification before relying on
+// the raw doc_type, which is only used as a last resort.
 const _isTraite = (entry: HistoryEntry): boolean => {
-  // Priorité 1 : labels d'entités réellement présentes (le plus fiable)
+  // Priority 1: labels of the entities actually present (most reliable)
   const labels = entry.result.entities.map((e) => e.label);
   if (["TIREUR", "TIRE", "RIB", "DOMICILIATION", "NUMERO_TRAITE"].some((l) => labels.includes(l))) return true;
 
-  // Priorité 2 : doc_type explicite retourné par le GLM/API
+  // Priority 2: explicit doc_type returned by GLM/the API
   const dt = (entry.result.doc_type ?? "").toLowerCase();
   if (dt.includes("traite") || dt.includes("lettre") || dt.includes("change")) return true;
 
-  // Priorité 3 : nom du fichier — peut corriger un doc_type="factures" erroné
+  // Priority 3: file name — can correct a wrong doc_type="factures"
   const fn = entry.filename.toLowerCase();
   if (fn.includes("traite") || fn.includes("lettre") || fn.includes("ldc") || fn.includes("billet")) return true;
 
   return false;
 };
 
-// Mini donut pour un type de document
+// Mini donut chart for one document type
 interface DonutCardProps {
   title: string;
   labels: { lbl: string; color: string }[];
@@ -109,7 +109,7 @@ const DonutCard = ({ title, labels, subset, totalDocs, delay = 0, accentColor }:
     fill: color,
   }));
 
-  // Quand tout est 0%, on affiche quand même les couleurs avec parts égales
+  // When everything is 0%, still show the colours with equal shares
   const allZero = data.every((d) => d.value === 0);
   const pieData = allZero ? data.map((d) => ({ ...d, value: 1 })) : data;
   const badgeBg = accentColor.replace(")", " / 0.15)").replace("hsl(", "hsl(");
@@ -127,7 +127,7 @@ const DonutCard = ({ title, labels, subset, totalDocs, delay = 0, accentColor }:
       </div>
       {totalDocs === 0 || subset.length === 0 ? (
         <div className="h-[130px] flex flex-col items-center justify-center gap-1">
-          <p className="text-xs text-muted-foreground">Aucune donnée</p>
+          <p className="text-xs text-muted-foreground">No data</p>
         </div>
       ) : (
         <>
@@ -155,7 +155,7 @@ const DonutCard = ({ title, labels, subset, totalDocs, delay = 0, accentColor }:
           </ResponsiveContainer>
           {allZero && (
             <p className="text-[10px] text-center text-muted-foreground -mt-1 mb-1">
-              En attente de détections
+              Waiting for detections
             </p>
           )}
         </>
@@ -234,7 +234,7 @@ const Dashboard = () => {
     { lbl: "MONTANT",       color: "hsl(152 60% 45%)" },
   ];
 
-  // Graphique temps d'inférence (10 dernières)
+  // Inference time chart (last 10)
   const inferenceData = history.slice(0, 10).map((e, i) => ({
     doc: `#${i + 1}`,
     s: Math.round(e.inferenceMs / 1000),
@@ -319,7 +319,7 @@ const Dashboard = () => {
 
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-        {/* Temps inférence */}
+        {/* Inference time */}
         <motion.div {...fade(0.4)} className="lg:col-span-2 glass-card rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-foreground">{t("dash_chart_time")}</h3>
@@ -339,7 +339,7 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(222 22% 22%)" vertical={false} />
                 <XAxis dataKey="doc" tick={{ fontSize: 11, fill: "hsl(215 15% 55%)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "hsl(215 15% 55%)" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v}s`, "Inférence"]} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v}s`, "Inference"]} />
                 <Area type="monotone" dataKey="s" stroke="hsl(215 80% 58%)" strokeWidth={2} fill="url(#inferGrad)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -360,7 +360,7 @@ const Dashboard = () => {
           accentColor="hsl(215, 80%, 58%)"
         />
 
-        {/* Donut Lettres de change */}
+        {/* Bills of exchange donut */}
         <DonutCard
           title={t("dash_detection_traites")}
           labels={TRAITE_LABELS}
@@ -429,7 +429,7 @@ const Dashboard = () => {
         )}
       </motion.div>
 
-      {/* Tableau Lettres de change */}
+      {/* Bills of exchange table */}
       <motion.div {...fade(0.6)} className="glass-card rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
           <div className="flex items-center gap-2">
@@ -449,9 +449,9 @@ const Dashboard = () => {
                 <tr>
                   <th>{t("common_file")}</th>
                   <th>TIREUR</th>
-                  <th>TIRÉ</th>
+                  <th>DRAWEE</th>
                   <th>N° TRAITE</th>
-                  <th>ÉCHÉANCE</th>
+                  <th>DUE DATE</th>
                   <th>MONTANT</th>
                   <th>RIB / DOMICILIATION</th>
                   <th>{t("dash_inference")}</th>

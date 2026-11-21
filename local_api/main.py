@@ -28,12 +28,12 @@ app = FastAPI(title="ODSINET Local API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # Autorise tous les origines locales (dev)
+    allow_origins=["*"],          # Allows all local origins (development)
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Schémas ──────────────────────────────────────────────────────────────────
+# ── Schemas ──────────────────────────────────────────────────────────────────
 class Timing(BaseModel):
     inference_ms: Optional[int] = None
     total_ms:     Optional[int] = None
@@ -54,7 +54,7 @@ def health():
 
 @app.post("/factures")
 def save_facture(data: FacturePayload):
-    """Insère une facture extraite (+ corrections éventuelles) dans PostgreSQL."""
+    """Inserts an extracted invoice (+ any corrections) into PostgreSQL."""
     e = data.entities
     corrected = bool(data.corrections and len(data.corrections) > 0)
 
@@ -93,7 +93,7 @@ def save_facture(data: FacturePayload):
 
 @app.get("/factures")
 def list_factures(limit: int = 50):
-    """Retourne les dernières factures enregistrées."""
+    """Returns the latest stored invoices."""
     try:
         conn = get_conn()
         cur  = conn.cursor(row_factory=dict_row)
@@ -111,7 +111,7 @@ def list_factures(limit: int = 50):
 
 @app.delete("/factures/{facture_id}")
 def delete_facture(facture_id: int):
-    """Supprime une facture par ID."""
+    """Deletes an invoice by ID."""
     try:
         conn = get_conn()
         cur  = conn.cursor()

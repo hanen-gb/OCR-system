@@ -1,224 +1,75 @@
-# OCR Multi-Agent Pipeline — Frontend
+# Frontend — document review interface
 
-Interface web React pour le système d'extraction, d'audit et d'analyse de documents financiers tunisiens (**factures** et **lettres de change**) alimenté par un pipeline multi-agents LangGraph.
+React interface of the document AI system: upload or photograph an invoice or a bill of exchange, review and correct
+the fields extracted by GLM-OCR (human-in-the-loop), run the LangGraph agents, and browse the history.
 
-> PFE 2025 · Goubaa Hanen · ENIG Gabès · ODSInet
+## Stack
 
----
+| Technology | Role |
+|---|---|
+| React 18 + Vite | UI and bundling |
+| TypeScript | Static typing |
+| Tailwind CSS + shadcn/ui (Radix) | Styling and UI components |
+| Recharts | Dashboard charts |
+| framer-motion, lucide-react | Animations, icons |
+| react-router-dom 6 | Routing |
 
-## Stack technique
-
-| Technologie | Rôle |
-|------------|------|
-| React 18 + Vite | UI + bundling |
-| TypeScript | Typage statique |
-| Tailwind CSS | Styles utilitaires |
-| shadcn/ui | Composants UI (Button, Card, Dialog…) |
-| framer-motion | Animations de page / entrées |
-| recharts | Graphiques Dashboard (AreaChart, PieChart) |
-| lucide-react | Icônes |
-| react-router-dom v6 | Routing SPA |
-
----
-
-## Structure du projet
+## Structure
 
 ```
-frontend/
-├── src/
-│   ├── contexts/
-│   │   └── AppContext.tsx        # i18n (FR/EN) + thème dark/light
-│   ├── lib/
-│   │   ├── api.ts               # Appels API : Modal OCR + agent server :8002
-│   │   ├── auth.ts              # Auth localStorage (session, utilisateurs)
-│   │   └── i18n.ts              # Toutes les chaînes FR + EN
-│   ├── components/
-│   │   ├── ui/                  # shadcn/ui composants
-│   │   ├── Layout.tsx           # Sidebar + topbar
-│   │   └── AuditCheckCard.tsx   # Carte OK/ERREUR/INCOMPLET pour les checks
-│   ├── pages/
-│   │   ├── LoginPage.tsx        # Authentification
-│   │   ├── Dashboard.tsx        # KPIs + graphiques + historique récent
-│   │   ├── UploadPage.tsx       # Pipeline complet + HITL + chatbot
-│   │   ├── DocumentsPage.tsx    # Historique PostgreSQL + localStorage
-│   │   ├── ProfilePage.tsx      # Profil utilisateur + photo
-│   │   ├── SettingsPage.tsx     # Thème + langue + gestion utilisateurs
-│   │   └── CalendarPage.tsx     # Calendrier des échéances (traites)
-│   └── main.tsx
-├── index.html
-└── vite.config.ts
+frontend/src/
+├── pages/          Login, Dashboard, Upload, Documents, Calendar, Profile, Settings
+├── components/     AppLayout (sidebar + top bar), ChatbotWidget, shadcn/ui components
+├── contexts/       AppContext (language + theme), ChatbotContext (current document)
+└── lib/
+    ├── api.ts      inference API (POST /predict) and agents API (port 8002) client
+    ├── auth.ts     local demo authentication
+    ├── i18n.ts     English and French strings
+    └── mockData.ts demo data for an empty dashboard
 ```
-
----
 
 ## Pages
 
-### LoginPage
-- Authentification par username/password stockée en localStorage
-- Compte de démonstration : `admin` (rôle admin) ; les autres comptes créés ont le rôle user
-- Session persistante via `localStorage`
+| Page | Route | Content |
+|---|---|---|
+| Upload | `/upload` | Upload or camera capture (images are resized to 1024 px before sending), extracted fields with inline correction and reset, agent results (contextual analysis, audit checks, anomalies), re-audit after correction, save to PostgreSQL |
+| Dashboard | `/` | KPIs, document-type distribution, inference times, recent documents |
+| Documents | `/documents` | History stored in PostgreSQL, search, deletion (admin) |
+| Calendar | `/calendar` | Documents processed per day |
+| Profile | `/profile` | Name, photo, bio, password |
+| Settings | `/settings` | Theme, language, user management (admin) |
 
-### Dashboard
-- **6 KPIs** : Documents analysés, Fournisseurs uniques, Clients distincts, Taux de complétion, Temps moyen d'inférence, Dernière analyse
-- **Graphique** temps d'inférence (10 derniers documents — AreaChart)
-- **Donut** taux de détection par entité, calculé sur le bon sous-ensemble (factures ou traites selon la majorité dans l'historique)
-- **Tableau** des 6 dernières analyses
-- Toutes les chaînes de texte passent par i18n (`t(key)`) — entièrement bilingue FR/EN
+A floating chatbot (Agent 4) is available on every page and uses the current document as context.
 
-### UploadPage (analyse principale)
-Orchestre le pipeline complet en 4 étapes :
+## Language
 
-```
-1. Dépôt du fichier (drag & drop ou sélecteur)
-         │
-         ▼
-2. Extraction (Agent 1) — entités structurées via GLM-OCR + LLM
-   └─ HITL : correction manuelle des entités avant validation
-         │
-         ▼
-3. Audit (Agent 2) — rapport de conformité KPI par KPI
-   └─ Facture  : Arithmétique · TVA · Net à payer · Lettres · Doublon · Gouvernance
-   └─ Traite   : Montant lettres · Échéance · RIB · Gouvernance · Doublon
-         │
-         ▼
-4. Analyse (Agent 3) — statistiques fournisseur + anomalies + insights LLM
-   └─ Chatbot (Agent 4) — questions/réponses sur le document
-```
+Every visible string goes through `t(key)` from `useApp()`; the keys are defined in
+[`src/lib/i18n.ts`](src/lib/i18n.ts) with an English and a French entry.
 
-**KPI cards — Facture :** Arithmétique, TVA, Net à payer, Lettres, Doublon, Gouvernance
+## Authentication
 
-**KPI cards — Traite :** Montant lettres, Échéance, RIB Bancaire, Gouvernance, Doublon
+The frontend uses a lightweight **local demo** authentication stored in `localStorage`
+(`odsinet_session`, `odsinet_users`, `odsinet_history_<user>`). The demo `admin` password is read from
+`VITE_DEMO_ADMIN_PASSWORD`; if it is not set, a random one is generated and printed once in the browser console.
+After login, the agents API issues a signed JWT (`POST /token`) used for its protected routes.
 
-**HITL (Human-in-the-Loop) :**
-- Après l'extraction, l'utilisateur peut modifier les valeurs des entités dans un formulaire
-- Les corrections sont passées comme `base_entities` au prochain appel `/analyse`
-- `mergedContextual` fusionne entités Agent 1 + corrections manuelles pour l'affichage final
-
-**Sauvegarde PostgreSQL :**
-- Bouton "Enregistrer dans la BDD" → `POST /save`
-- Affiche le message d'erreur PostgreSQL réel si l'enregistrement échoue (max 200 chars)
-
-### DocumentsPage
-Deux onglets :
-- **PostgreSQL** : requête `GET /pg/documents` — affiche id, fichier, type, fournisseur, montant, statut audit, durée pipeline, propriétaire
-  - Bouton "Vider SQLite" (admin uniquement) → `DELETE /admin/clear-sqlite` — resynchronise le détecteur de doublons avec PostgreSQL
-- **Local** : historique `localStorage` — 10 derniers documents analysés dans le navigateur
-
-### ProfilePage
-- Informations de l'utilisateur connecté : nom, rôle, avatar
-- Upload de photo de profil (stockée en base64 localStorage)
-
-### SettingsPage
-- **Thème** : dark / light (persisté en localStorage)
-- **Langue** : Français / English (persisté en localStorage)
-- **Gestion utilisateurs** (admin uniquement) : liste des comptes, suppression, compte `admin` protégé
-
-### CalendarPage
-- Calendrier mensuel des échéances de lettres de change
-- Données issues de l'historique localStorage
-
----
-
-## Internationalisation (i18n)
-
-Toutes les chaînes visibles à l'utilisateur passent par `t(key)` via le hook `useApp()`.
-
-```tsx
-const { t, lang, setLang } = useApp();
-// Utilisation
-<p>{t("dash_suppliers_sub").replace("{n}", String(totalDocs))}</p>
-```
-
-Les clés sont définies dans [src/lib/i18n.ts](src/lib/i18n.ts) avec une entrée FR et EN pour chaque clé. Pour ajouter une langue, étendre l'objet `translations` dans ce fichier.
-
----
-
-## Authentification
-
-Authentification légère basée sur `localStorage` (pas de JWT côté frontend).
-
-```
-localStorage:
-  odsinet_session       → { username, role, displayName }
-  odsinet_users         → tableau de tous les comptes
-  odsinet_history_<usr> → historique des analyses de l'utilisateur
-```
-
-L'API backend `/token` génère un JWT utilisé uniquement pour les appels aux endpoints protégés (notamment `/save`, `/admin/clear-sqlite`).
-
----
-
-## Connexion API
-
-Deux backends :
-- **GLM-OCR (Modal)** : extraction OCR via `src/lib/api.ts` → `POST /predict`
-- **Agent server (port 8002)** : pipeline multi-agents → `POST /analyse`, `POST /chat`, `POST /save`, `GET /pg/documents`, etc.
-
-La constante `AGENT_BASE_URL` dans `api.ts` pointe sur `http://localhost:8002`.
-
----
-
-## Installation et démarrage
-
-### Prérequis
-- Node.js 20+
-- Agent server backend démarré sur le port 8002
-
-### Installation
+## Configuration and start-up
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env      # VITE_API_URL (inference API), VITE_AGENT_URL (agents API), VITE_DEMO_ADMIN_PASSWORD
+npm run dev               # http://localhost:3000
+npm run build             # production build
+npx tsc --noEmit          # type check
 ```
 
-### Développement
+## Fields displayed
 
-```bash
-npm run dev
-```
+| Invoice | Bill of exchange |
+|---|---|
+| `CLIENT`, `FOURNISSEUR`, `NUMERO_FACTURE`, `DATE_FACTURE`, `MONTANT_TTC` (GLM-OCR) | `NUMERO_TRAITE`, `DATE_ECHEANCE`, `MONTANT`, `TIREUR`, `TIRE`, `RIB`, `DOMICILIATION` (GLM-OCR) |
+| `MONTANT_HT`, `MONTANT_TVA`, `TIMBRE_FISCAL`, `NET_A_PAYER_LETTRES`, items… (Extractor agent) | `MONTANT_EN_LETTRES`, endorsements, guarantee… (Extractor agent) |
 
-Ouvre l'interface sur `http://localhost:5173`.
-
-### Build de production
-
-```bash
-npm run build
-npm run preview   # prévisualiser le build
-```
-
-### Vérification TypeScript
-
-```bash
-npx tsc --noEmit
-```
-
----
-
-## Entités reconnues
-
-### Facture
-
-| Label | Description |
-|-------|-------------|
-| `CLIENT` | Nom du client |
-| `FOURNISSEUR` | Nom du fournisseur |
-| `NUMERO_FACTURE` | N° de facture |
-| `DATE_FACTURE` | Date de la facture |
-| `MONTANT_TTC` | Montant TTC |
-| `MONTANT_HT` | Montant hors taxe |
-| `MONTANT_TVA` | Montant TVA |
-| `TIMBRE_FISCAL` | Timbre fiscal |
-| `NET_A_PAYER_LETTRES` | Montant en toutes lettres |
-
-### Lettre de change (traite)
-
-| Label | Description |
-|-------|-------------|
-| `TIREUR` | Émetteur de la traite |
-| `TIRE` | Destinataire |
-| `RIB` | RIB bancaire 20 chiffres |
-| `DOMICILIATION` | Banque domiciliataire |
-| `MONTANT` | Montant en chiffres |
-| `MONTANT_EN_LETTRES` | Montant en toutes lettres |
-| `DATE_ECHEANCE` | Date d'échéance |
-| `NUMERO_TRAITE` | N° de la traite |
+Field names are kept as the model and API return them (client, supplier, invoice number, invoice date, total amount
+incl. VAT; bill number, due date, amount, drawer, drawee, bank identifier, paying bank).

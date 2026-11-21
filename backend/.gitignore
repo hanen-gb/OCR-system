@@ -4,6 +4,6 @@ __pycache__/
 .env
 .doctr_cache/
 *.log
-# Le modèle est hébergé sur HF Hub (Goubaa/layoutxlm-factures)
-# Ne pas inclure dans le Space (limite 1 GB)
+# The model is hosted on the Hugging Face Hub
+# Do not include it in the Space (1 GB limit)
 model/

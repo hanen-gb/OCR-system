@@ -15,28 +15,28 @@ interface HistoryEntry {
   inferenceMs: number;
 }
 
-/** Normalise une date vers "YYYY-MM-DD" */
+/** Normalises a date to "YYYY-MM-DD" */
 function toIso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
 /**
- * Convertit le format stocké dans l'historique vers "YYYY-MM-DD".
+ * Converts the format stored in the history to "YYYY-MM-DD".
  * Supporte :
  *   - "15/04/2026 14:30:00"   (toLocaleString fr-FR)
- *   - "15/04/2026, 14:30:00"  (toLocaleString fr-FR avec virgule — Chrome/Node récents)
+ *   - "15/04/2026, 14:30:00"  (fr-FR toLocaleString with a comma — recent Chrome/Node)
  *   - "2026-04-15T..."        (ISO)
  *   - "2026-04-15"            (ISO court)
  */
 function entryDateToIso(dateStr: string): string {
   if (!dateStr) return "";
-  // Format fr-FR : extrait DD/MM/YYYY peu importe ce qui suit (virgule, "à", heure...)
+  // fr-FR format: extracts DD/MM/YYYY whatever follows (comma, "à", time...)
   const m = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (m) {
     const [, dd, mm, yyyy] = m;
     return `${yyyy}-${mm}-${dd}`;
   }
-  // Format ISO : retourne les 10 premiers caractères
+  // ISO format: returns the first 10 characters
   return dateStr.slice(0, 10);
 }
 
@@ -55,16 +55,16 @@ const CalendarPage = () => {
     }
   }, []);
 
-  // Dates qui ont des analyses (pour les mettre en évidence)
+  // Dates with analyses (to highlight them)
   const activeDates = new Set(history.map((e) => entryDateToIso(e.date)));
 
-  // Analyses du jour sélectionné
+  // Analyses of the selected day
   const selectedIso = selected ? toIso(selected) : null;
   const dayEntries = selectedIso
     ? history.filter((e) => entryDateToIso(e.date) === selectedIso)
     : [];
 
-  // Modifier les styles du rdp pour indiquer les jours actifs
+  // Change the rdp styles to mark the active days
   const modifiers = {
     hasAnalysis: history
       .map((e) => {
@@ -111,7 +111,7 @@ const CalendarPage = () => {
           </p>
         </motion.div>
 
-        {/* Liste du jour */}
+        {/* List of the day */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -181,7 +181,7 @@ const CalendarPage = () => {
                   </button>
                 </div>
 
-                {/* Entités résumé */}
+                {/* Entities summary */}
                 <div className="flex flex-wrap gap-1.5 px-4 pb-3">
                   {TARGET_LABELS.map((label) => {
                     const val = entitiesMap[label];

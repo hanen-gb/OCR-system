@@ -1,24 +1,24 @@
 """
 Sous-graphe LangGraph — Agent 2 : L'Auditeur
 
-Flux séquentiel :
+Sequential flow:
     START → prepare
               ↓
            arithmetic   ← QTE × PU ≈ Total_HT par ligne
               ↓
             tva          ← Σ TVA lignes ≈ montant_tva global
               ↓
-            net          ← HT + TVA + Timbre ≈ Net à payer
+            net          ← excl. VAT + VAT + stamp duty ≈ net amount payable
               ↓
-           lettres       ← Couche 3 : net_a_payer_lettres vs net_a_payer numérique
+           lettres       ← Layer 3: net_a_payer_lettres vs numeric net_a_payer
               ↓
-           doublon       ← PostgreSQL : N° déjà vu en base ?
+           doublon       ← PostgreSQL: number already stored?
               ↓
           gouvernance    ← Signatures, tampons, aval
               ↓
            verdict       ← Status final
               ↓
-        notification     ← Email si montant > seuil ou échéance proche
+        notification     ← E-mail if amount > threshold or due date close
               ↓
              END
 """
@@ -57,11 +57,11 @@ def _num(d: dict, *keys) -> float | None:
         v = d.get(k)
         if v is not None:
             try:
-                # Gère virgule décimale et espaces milliers ("135,660" → 135.660)
+                # Handles decimal commas and thousands spaces ("135,660" → 135.660)
                 if isinstance(v, str):
                     v = re.sub(r"\s", "", v.strip())
                     # Point + 3 chiffres = millimes tunisiens → garder (135.660)
-                    # Virgule = séparateur décimal → convertir en point
+                    # Comma = decimal separator → convert to a dot
                     if "," in v and "." not in v:
                         v = v.replace(",", ".")
                     elif "," in v and "." in v:
@@ -78,19 +78,19 @@ def _is_hallucinated(
     montant_ht: float | None = None,
 ) -> bool:
     """
-    Détecte une valeur monétaire hallucinée par le LLM.
+    Detects a monetary value hallucinated by the LLM.
     Trois cas :
-      1. Nombre répétitif : 333333, 111111, 999999…
-      2. Valeur > 10× la somme réelle des lignes d'articles
+      1. Repetitive number: 333333, 111111, 999999…
+      2. Value > 10× the actual sum of the item lines
       3. Valeur > 5× montant_ht global (si disponible)
     """
     if value is None:
         return False
-    # Cas 1 — chiffres répétitifs
+    # Case 1 — repeated digits
     s = str(int(abs(value)))
     if len(s) >= 4 and len(set(s)) == 1:
         return True
-    # Cas 2 — aberration vs articles réels
+    # Case 2 — outlier compared with the actual items
     total_lignes = sum(
         float(a["total_ht_ligne"])
         for a in articles
@@ -98,7 +98,7 @@ def _is_hallucinated(
     )
     if total_lignes > 0 and value > total_lignes * 10:
         return True
-    # Cas 3 — aberration vs montant_ht global (factures services sans articles)
+    # Case 3 — outlier vs overall montant_ht (service invoices without items)
     if montant_ht is not None and montant_ht > 0 and value > montant_ht * 5:
         return True
     return False
@@ -107,7 +107,7 @@ def _is_hallucinated(
 # ── Nœuds ─────────────────────────────────────────────────────────────────────
 
 def prepare_node(state: AuditorState) -> dict:
-    """Résout doc_type, doc_number, fournisseur, montant_ttc depuis les entités."""
+    """Resolves doc_type, doc_number, supplier and total amount from the entities."""
     entities = state.get("complete_entities") or {}
     base     = state.get("base_entities") or {}
 
@@ -120,7 +120,7 @@ def prepare_node(state: AuditorState) -> dict:
         montant_ttc = (_num(base, "MONTANT", "montant")             or _num(entities, "MONTANT", "montant"))
         date_doc    = (_str(base, "DATE_ECHEANCE", "date_echeance") or _str(entities, "date_echeance"))
     else:
-        # Accepte les clés MAJUSCULES (GLM editedMap) ET minuscules (Agent 1)
+        # Accepts UPPER-CASE keys (GLM editedMap) AND lower-case keys (Agent 1)
         doc_number  = (_str(base, "NUMERO_FACTURE", "num_facture")  or _str(entities, "num_facture", "numero_facture"))
         fournisseur = None
         if isinstance(base.get("FOURNISSEUR"), dict):
@@ -132,11 +132,11 @@ def prepare_node(state: AuditorState) -> dict:
         montant_ttc = (_num(base, "MONTANT_TTC", "montant_ttc")     or _num(entities, "net_a_payer"))
         date_doc    = (_str(base, "DATE_FACTURE", "date_facture")    or _str(entities, "date_facture"))
 
-    # Rejeter les valeurs hallucinées (333333, valeur >> articles ou >> montant_ht)
+    # Reject hallucinated values (333333, value >> items or >> amount excl. VAT)
     articles_prepare = entities.get("articles") or []
     montant_ht_prepare = _num(entities, "montant_ht")
     if _is_hallucinated(montant_ttc, articles_prepare, montant_ht_prepare):
-        print(f"[AUDITEUR] Valeur hallucinée détectée ({montant_ttc}) → ignorée, montant_ttc=null")
+        print(f"[AUDITOR] Hallucinated value detected ({montant_ttc}) → ignored, montant_ttc=null")
         montant_ttc = None
 
     print(f"[AUDITEUR] type={doc_type} | num={doc_number} | ttc={montant_ttc}")
@@ -150,7 +150,7 @@ def prepare_node(state: AuditorState) -> dict:
 
 
 def route_by_doc_type(state: AuditorState) -> str:
-    """Routing conditionnel : traite → chemin simplifié, facture → chemin arithmétique complet."""
+    """Conditional routing: bill of exchange → simplified path, invoice → full arithmetic path."""
     doc_type = state.get("doc_type") or ""
     if "lettre" in doc_type or "change" in doc_type or "traite" in doc_type:
         return "traite"
@@ -158,9 +158,9 @@ def route_by_doc_type(state: AuditorState) -> str:
 
 
 def montant_traite_node(state: AuditorState) -> dict:
-    """Cross-check montant en lettres vs montant numérique pour une lettre de change.
-    Essaie montant_en_lettres en priorité, puis notes_manuscrites si le premier
-    est absent ou donne un résultat incohérent (OCR dégradé, ex: GENTS vs CENTS).
+    """Cross-checks the amount in words against the numeric amount of a bill of exchange.
+    Tries montant_en_lettres first, then notes_manuscrites when the first one
+    is missing or gives an inconsistent result (degraded OCR, e.g. GENTS vs CENTS).
     """
     entities         = state.get("complete_entities") or {}
     montant_chiffres = state.get("montant_ttc")
@@ -170,29 +170,29 @@ def montant_traite_node(state: AuditorState) -> dict:
 
     result = check_montant_traite(montant_chiffres, lettres_primary)
 
-    # Si le résultat primaire est ERREUR_MONTANT et qu'un fallback existe, tenter notes_manuscrites
+    # If the primary result is ERREUR_MONTANT and a fallback exists, try notes_manuscrites
     if result.get("status") == "ERREUR_MONTANT" and lettres_fallback and lettres_fallback != lettres_primary:
         result_fb = check_montant_traite(montant_chiffres, lettres_fallback)
         if result_fb.get("status") == "OK":
-            print(f"[AUDITEUR/TRAITE] montant_en_lettres dégradé → notes_manuscrites utilisées")
+            print(f"[AUDITOR/BILL] degraded montant_en_lettres → notes_manuscrites used")
             result = result_fb
 
-    print(f"[AUDITEUR/TRAITE] Montant lettres : {result.get('status')}")
+    print(f"[AUDITOR/BILL] Amount in words: {result.get('status')}")
     return {"check_montant_traite": result}
 
 
 def echeance_node(state: AuditorState) -> dict:
-    """Vérifie la date d'échéance de la lettre de change."""
+    """Checks the due date of the bill of exchange."""
     base     = state.get("base_entities") or {}
     entities = state.get("complete_entities") or {}
     date_ech = (_str(base, "DATE_ECHEANCE", "date_echeance") or _str(entities, "date_echeance"))
     result   = check_echeance_traite(date_ech)
-    print(f"[AUDITEUR/TRAITE] Échéance : {result.get('status')} ({date_ech})")
+    print(f"[AUDITOR/BILL] Due date: {result.get('status')} ({date_ech})")
     return {"check_echeance": result}
 
 
 def rib_node(state: AuditorState) -> dict:
-    """Vérifie que le RIB bancaire contient exactement 20 chiffres (norme tunisienne)."""
+    """Checks that the bank RIB has exactly 20 digits (Tunisian standard)."""
     base     = state.get("base_entities") or {}
     entities = state.get("complete_entities") or {}
     rib      = (_str(base, "RIB", "rib") or _str(entities, "rib", "rib_tire"))
@@ -202,25 +202,25 @@ def rib_node(state: AuditorState) -> dict:
 
 
 def arithmetic_node(state: AuditorState) -> dict:
-    """Vérifie QTE × PU_HT ≈ Total_HT pour chaque ligne d'article."""
+    """Checks QTY × unit price excl. VAT ≈ line total excl. VAT for each item line."""
     articles = (state.get("complete_entities") or {}).get("articles") or []
     result   = check_arithmetic_lines(articles)
     nb_err   = sum(1 for r in result if r["status"] == "ERREUR")
-    print(f"[AUDITEUR] Arithmétique : {len(result)} lignes, {nb_err} erreurs")
+    print(f"[AUDITOR] Arithmetic: {len(result)} lines, {nb_err} errors")
     return {"check_arithmetique": result}
 
 
 def tva_node(state: AuditorState) -> dict:
-    """Vérifie Σ TVA lignes ≈ montant_tva global.
+    """Checks Σ line VAT ≈ overall montant_tva.
     Fallback 1 : si tva_rate_ligne absent → injecte tva_rate global.
-    Fallback 2 : si tva_rate aberrant → recalcule depuis montant_tva / montant_ht.
+    Fallback 2: if tva_rate is an outlier → recomputed from montant_tva / montant_ht.
     """
     entities    = state.get("complete_entities") or {}
     articles    = entities.get("articles") or []
     montant_tva = _num(entities, "montant_tva")
 
-    # Calcul automatique de montant_tva si absent (Agent 1 l'a manqué)
-    # Formule : HT × taux_tva — si HT global ou somme articles + taux disponibles
+    # Compute montant_tva automatically when missing (missed by Agent 1)
+    # Formula: amount excl. VAT × VAT rate — if the overall amount or the item sum and the rate are available
     if montant_tva is None and entities.get("tva_rate") is not None:
         ht_base = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
         if ht_base is None and articles:
@@ -236,11 +236,11 @@ def tva_node(state: AuditorState) -> dict:
                 t = float(str(entities["tva_rate"]).replace("%", "").strip())
                 if t > 1: t /= 100
                 montant_tva = round(ht_base * t, 3)
-                print(f"[AUDITEUR] montant_tva null → calculé : {ht_base} × {t*100:.1f}% = {montant_tva}")
+                print(f"[AUDITOR] montant_tva null → computed: {ht_base} × {t*100:.1f}% = {montant_tva}")
             except (ValueError, TypeError):
                 pass
 
-    # Détection bug ×1000 (DT millimes lus sans virgule, ex: 3672 au lieu de 3.672)
+    # ×1000 bug detection (TND millimes read without the decimal separator, e.g. 3672 instead of 3.672)
     mht_ref = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
     if mht_ref is None and articles:
         try:
@@ -253,30 +253,30 @@ def tva_node(state: AuditorState) -> dict:
         if montant_tva > mht_ref * 0.6:
             corrige = round(montant_tva / 1000, 3)
             if 0.03 * mht_ref <= corrige <= 0.35 * mht_ref:
-                print(f"[AUDITEUR] Bug ×1000 détecté : montant_tva {montant_tva} → {corrige}")
+                print(f"[AUDITOR] ×1000 bug detected: montant_tva {montant_tva} → {corrige}")
                 montant_tva = corrige
 
-    # Validation du taux TVA global : si aberrant, recalculer depuis montant_tva/montant_ht
+    # Overall VAT rate check: if it is an outlier, recompute it from montant_tva/montant_ht
     taux_global_raw = entities.get("tva_rate")
     if taux_global_raw is not None:
         try:
             taux_val = float(str(taux_global_raw))
             TAUX_CONNUS = {7, 13, 19, 20, 25}
             if taux_val not in TAUX_CONNUS:
-                # Tentative de recalcul depuis les montants globaux
+                # Try to recompute it from the overall amounts
                 mht = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
                 mtva = _num(entities, "montant_tva")
                 if mht and mtva and mht > 0:
                     taux_recalc = round(mtva / mht * 100, 1)
-                    # Arrondir au taux connu le plus proche
+                    # Round to the closest known rate
                     taux_corrige = min(TAUX_CONNUS, key=lambda t: abs(t - taux_recalc))
                     if abs(taux_recalc - taux_corrige) < 3:
-                        print(f"[AUDITEUR] tva_rate aberrant ({taux_val}%) → corrigé à {taux_corrige}% (recalc={taux_recalc}%)")
+                        print(f"[AUDITOR] outlier tva_rate ({taux_val}%) → corrected to {taux_corrige}% (recomputed={taux_recalc}%)")
                         taux_global_raw = str(taux_corrige)
         except (ValueError, TypeError):
             pass
 
-    # Fallback taux : si tva_rate absent mais HT + TVA disponibles → taux implicite
+    # Rate fallback: if tva_rate is missing but excl. VAT + VAT are available → implicit rate
     if taux_global_raw is None and montant_tva is not None and montant_tva > 0:
         mht_imp = _num(entities, "montant_ht") or _num(entities, "montant_ht_ar") or _num(entities, "net_htva")
         if mht_imp and mht_imp > 0:
@@ -287,7 +287,7 @@ def tva_node(state: AuditorState) -> dict:
                 taux_global_raw = str(taux_proche)
                 print(f"[AUDITEUR] tva_rate absent → taux implicite {implied}% → {taux_proche}%")
 
-    # Fallback : si aucune ligne n'a de taux TVA, injecter le taux global
+    # Fallback: if no line has a VAT rate, inject the overall rate
     taux_ligne_absents = all(a.get("tva_rate_ligne") is None for a in articles)
     if taux_ligne_absents and articles and taux_global_raw is not None:
         taux_global = str(taux_global_raw).replace("%", "").strip()
@@ -296,9 +296,9 @@ def tva_node(state: AuditorState) -> dict:
             for a in articles
             if a.get("total_ht_ligne") is not None
         ]
-        print(f"[AUDITEUR] tva_rate_ligne absent → taux global '{taux_global}%' injecté sur {len(articles)} ligne(s)")
+        print(f"[AUDITOR] tva_rate_ligne missing → overall rate '{taux_global}%' injected on {len(articles)} line(s)")
 
-    # Remise globale : distribuer proportionnellement sur les lignes avant calcul TVA
+    # Overall discount: spread proportionally over the lines before computing VAT
     remise_globale = _num(entities, "remise_globale")
     if remise_globale is not None and remise_globale < 0 and articles:
         try:
@@ -312,28 +312,28 @@ def tva_node(state: AuditorState) -> dict:
                     {**a, "total_ht_ligne": round(float(a["total_ht_ligne"]) * (1 - remise_ratio), 3)}
                     for a in articles if a.get("total_ht_ligne") is not None
                 ]
-                print(f"[AUDITEUR] Remise globale {remise_globale} → ratio {remise_ratio:.4f} distribué sur {len(articles)} ligne(s)")
+                print(f"[AUDITOR] Overall discount {remise_globale} → ratio {remise_ratio:.4f} spread over {len(articles)} line(s)")
         except (TypeError, ValueError):
             pass
 
     result = validate_tva_globale(articles, montant_tva)
-    print(f"[AUDITEUR] TVA : {result.get('status')} (écart={result.get('ecart')})")
+    print(f"[AUDITOR] VAT: {result.get('status')} (difference={result.get('ecart')})")
     return {"check_tva": result}
 
 
 def net_node(state: AuditorState) -> dict:
-    """Vérifie HT + TVA + Timbre ≈ net_a_payer (TTC)."""
+    """Checks amount excl. VAT + VAT + stamp duty ≈ net_a_payer (incl. VAT)."""
     entities = state.get("complete_entities") or {}
 
     montant_ht = _num(entities, "montant_ht")
 
-    # Fallback 1 : montant_ht_ar (après remise) si montant_ht absent
+    # Fallback 1: montant_ht_ar (after discount) when montant_ht is missing
     if montant_ht is None:
         montant_ht = _num(entities, "montant_ht_ar")
         if montant_ht:
-            print(f"[AUDITEUR] montant_ht → depuis montant_ht_ar : {montant_ht}")
+            print(f"[AUDITOR] montant_ht → from montant_ht_ar: {montant_ht}")
 
-    # Fallback 2 : somme des articles si toujours null
+    # Fallback 2: sum of the items if still null
     if montant_ht is None:
         articles = entities.get("articles") or []
         try:
@@ -344,11 +344,11 @@ def net_node(state: AuditorState) -> dict:
             )
             if total_lignes > 0:
                 montant_ht = round(total_lignes, 3)
-                print(f"[AUDITEUR] montant_ht → reconstitué depuis articles : {montant_ht}")
+                print(f"[AUDITOR] montant_ht → rebuilt from the items: {montant_ht}")
         except (TypeError, ValueError):
             pass
 
-    # Fallback 3 (rétro-calcul) : HT = TTC - TVA - Timbre — quand tout le reste est null
+    # Fallback 3 (back-calculation): excl. VAT = incl. VAT − VAT − stamp duty — when everything else is null
     if montant_ht is None and state.get("montant_ttc") is not None:
         try:
             tva_rc    = _num(entities, "montant_tva") or 0
@@ -357,27 +357,27 @@ def net_node(state: AuditorState) -> dict:
             retro     = round(float(state["montant_ttc"]) - tva_rc - timbre_rc - fodec_rc, 3)
             if retro > 0:
                 montant_ht = retro
-                print(f"[AUDITEUR] montant_ht rétro-calculé : TTC-TVA-Timbre = {montant_ht}")
+                print(f"[AUDITOR] montant_ht back-calculated: incl. VAT − VAT − stamp = {montant_ht}")
         except (TypeError, ValueError):
             pass
 
-    # montant_tva : utiliser la valeur extraite ou la calculer depuis HT × taux
+    # montant_tva: use the extracted value or compute it as amount excl. VAT × rate
     montant_tva_net = _num(entities, "montant_tva")
     if montant_tva_net is None and montant_ht is not None and entities.get("tva_rate") is not None:
         try:
             t = float(str(entities["tva_rate"]).replace("%", "").strip())
             if t > 1: t /= 100
             montant_tva_net = round(montant_ht * t, 3)
-            print(f"[AUDITEUR/net] montant_tva calculé pour check_net : {montant_tva_net}")
+            print(f"[AUDITOR/net] montant_tva computed for check_net: {montant_tva_net}")
         except (ValueError, TypeError):
             pass
 
-    # Détection bug ×1000 : TVA ne peut pas dépasser 60% du HT
+    # ×1000 bug detection: VAT cannot exceed 60% of the amount excl. VAT
     if montant_tva_net is not None and montant_ht is not None and montant_ht > 0:
         if montant_tva_net > montant_ht * 0.6:
             corrige = round(montant_tva_net / 1000, 3)
             if 0.03 * montant_ht <= corrige <= 0.35 * montant_ht:
-                print(f"[AUDITEUR/net] Bug ×1000 détecté : montant_tva {montant_tva_net} → {corrige}")
+                print(f"[AUDITOR/net] ×1000 bug detected: montant_tva {montant_tva_net} → {corrige}")
                 montant_tva_net = corrige
 
     result = check_net_a_payer(
@@ -388,34 +388,34 @@ def net_node(state: AuditorState) -> dict:
         fodec         = _num(entities, "fodec"),
         net_htva      = _num(entities, "net_htva"),
     )
-    print(f"[AUDITEUR] Net à payer : {result.get('status')} (écart={result.get('ecart')})")
+    print(f"[AUDITOR] Net payable: {result.get('status')} (difference={result.get('ecart')})")
     return {"check_net": result}
 
 
 def lettres_node(state: AuditorState) -> dict:
     """
-    Couche 3 — cross-check net_a_payer_lettres vs net_a_payer numérique.
-    Le texte en lettres est l'ancre de vérité (pas d'ambiguïté de séparateur décimal).
-    Un écart > 500 millimes signale une erreur de parsing dans Agent 1.
+    Layer 3 — cross-checks net_a_payer_lettres against the numeric net_a_payer.
+    The amount in words is the anchor of truth (no decimal-separator ambiguity).
+    A difference > 500 millimes signals a parsing error in Agent 1.
     """
     entities            = state.get("complete_entities") or {}
     net_a_payer         = _num(entities, "net_a_payer")
     net_a_payer_lettres = entities.get("net_a_payer_lettres")
 
     result = check_net_lettres(net_a_payer, net_a_payer_lettres)
-    print(f"[AUDITEUR] Lettres : {result.get('status')} | écart={result.get('ecart')} DT")
+    print(f"[AUDITOR] Amount in words: {result.get('status')} | difference={result.get('ecart')} TND")
     return {"check_lettres": result}
 
 
 def doublon_node(state: AuditorState) -> dict:
-    """Consulte PostgreSQL pour détecter un doublon."""
+    """Queries PostgreSQL to detect a duplicate."""
     result = check_doublon_pg(state.get("doc_type") or "facture", state.get("doc_number"))
     print(f"[AUDITEUR] Doublon : {result.get('status')} ({state.get('doc_number')})")
     return {"check_doublon": result}
 
 
 def gouvernance_node(state: AuditorState) -> dict:
-    """Vérifie les champs de gouvernance (signatures, tampons, aval)."""
+    """Checks the governance fields (signatures, stamps, bank guarantee)."""
     entities = state.get("complete_entities") or {}
     result   = check_governance(entities)
     print(f"[AUDITEUR] Gouvernance : {result.get('status')} — manquants={result.get('champs_manquants')}")
@@ -423,17 +423,17 @@ def gouvernance_node(state: AuditorState) -> dict:
 
 
 def verdict_node(state: AuditorState) -> dict:
-    """Calcule le statut final et enregistre le document si nouveau."""
+    """Computes the final status and stores the document if it is new."""
     doublon     = state.get("check_doublon") or {}
     gouvernance = state.get("check_gouvernance") or {}
     entities    = state.get("complete_entities") or {}
     doc_type    = state.get("doc_type") or ""
     is_traite   = "lettre" in doc_type or "change" in doc_type or "traite" in doc_type
 
-    # NB : l'enregistrement persistant du document se fait dans PostgreSQL via
-    # save_document() (assistant/api/main.py), appelé juste après ce graphe.
+    # Note: the document is persisted in PostgreSQL by
+    # save_document() (assistant/api/main.py), called right after this graph.
 
-    # ── Chemin traite ──────────────────────────────────────────────────────────
+    # ── Bill of exchange path ───────────────────────────────────────────────────
     if is_traite:
         montant_traite = state.get("check_montant_traite") or {}
         echeance       = state.get("check_echeance") or {}
@@ -466,7 +466,7 @@ def verdict_node(state: AuditorState) -> dict:
         print(f"[AUDITEUR/TRAITE] Verdict : {status}")
         return {"status_validite": status, "audit_report": rapport}
 
-    # ── Chemin facture ─────────────────────────────────────────────────────────
+    # ── Invoice path ─────────────────────────────────────────────────────────────
     arithmetique = state.get("check_arithmetique") or []
     lettres      = state.get("check_lettres") or {}
     articles     = entities.get("articles") or []
@@ -512,7 +512,7 @@ def verdict_node(state: AuditorState) -> dict:
         len(articles) > 0
     )
     if document_incomplet:
-        print("[AUDITEUR] Document potentiellement tronqué — bloc totaux absent")
+        print("[AUDITOR] Document possibly truncated — totals block missing")
 
     rapport = {
         "status_validite"           : status,
@@ -535,12 +535,12 @@ def verdict_node(state: AuditorState) -> dict:
 
 def notification_node(state: AuditorState) -> dict:
     """
-    Vérifie les conditions d'alerte et envoie un email si nécessaire.
+    Checks the alert conditions and sends an e-mail if needed.
 
-    Conditions déclenchantes :
-      1. Montant TTC > ALERT_THRESHOLD_DT  (défaut 5 000 DT)
-      2. Date d'échéance dans ≤ ALERT_DEADLINE_DAYS jours (défaut 7) ou dépassée
-      3. Nouveau document ET montant TTC > ALERT_NOUVEAU_MONTANT_DT (défaut 4 000 DT)
+    Trigger conditions:
+      1. Total amount incl. VAT > ALERT_THRESHOLD_DT  (default 5,000 TND)
+      2. Due date within ≤ ALERT_DEADLINE_DAYS days (default 7) or already passed
+      3. New document AND total amount incl. VAT > ALERT_NOUVEAU_MONTANT_DT (default 4,000 TND)
     """
     entities    = state.get("complete_entities") or {}
     base        = state.get("base_entities") or {}
@@ -549,16 +549,16 @@ def notification_node(state: AuditorState) -> dict:
     is_traite   = "lettre" in (doc_type or "")
     is_nouveau  = (state.get("check_doublon") or {}).get("status") == "NOUVEAU"
 
-    # Récupère la date d'échéance selon le type de document
+    # Get the due date according to the document type
     if is_traite:
-        date_echeance = state.get("date_doc")  # prepare_node l'a mis depuis base_entities
+        date_echeance = state.get("date_doc")  # set by prepare_node from base_entities
     else:
         date_echeance = (
             _str(entities, "date_echeance")
             or _str(base, "date_echeance")
         )
 
-    # Charger historique PostgreSQL pour comparaison montant vs moyenne du même type
+    # Load the PostgreSQL history to compare the amount with the average of the same type
     try:
         historique = get_documents_pg(limit=500)
     except Exception:
@@ -584,9 +584,9 @@ def notification_node(state: AuditorState) -> dict:
             status_validite = state.get("status_validite"),
         )
     else:
-        print("[NOTIFIER] Aucune condition d'alerte déclenchée")
+        print("[NOTIFIER] No alert condition triggered")
 
-    # Enrichit audit_report avec le résultat de la notification
+    # Add the notification result to audit_report
     rapport = state.get("audit_report") or {}
     rapport["notification"] = {
         "alerted"   : bool(alerts),
@@ -608,7 +608,7 @@ def build_auditor_graph():
     builder = StateGraph(AuditorState)
 
     builder.add_node("prepare",        prepare_node)
-    # Facture path : arithmetic → lettres (TVA et Net supprimés du pipeline)
+    # Invoice path: arithmetic → amount in words (VAT and Net checks removed from the pipeline)
     builder.add_node("arithmetic",     arithmetic_node)
     builder.add_node("lettres",        lettres_node)
     # Traite path

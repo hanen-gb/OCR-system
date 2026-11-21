@@ -1,17 +1,17 @@
 """
-Fonctions de détection d'anomalies et calcul statistique — Agent 3 : L'Analyste
+Anomaly detection and statistics — Agent 3: the Analyst
 """
 
 from typing import Optional, List
 
 
-SEUIL_DEVIATION_ATTENTION = 0.30   # 30 % d'écart → ATTENTION
-SEUIL_DEVIATION_ALERTE    = 0.60   # 60 % d'écart → ALERTE
-SEUIL_MONTANT_ELEVE       = 3.0    # 3× la moyenne globale
+SEUIL_DEVIATION_ATTENTION = 0.30   # 30 % deviation → WARNING
+SEUIL_DEVIATION_ALERTE    = 0.60   # 60 % deviation → ALERT
+SEUIL_MONTANT_ELEVE       = 3.0    # 3× the overall average
 
 
 def compute_supplier_stats(historique: List[dict], fournisseur: Optional[str]) -> dict:
-    """Statistiques historiques pour un fournisseur donné."""
+    """Historical statistics for a given supplier."""
     if not fournisseur:
         return {
             "nb_documents": 0,
@@ -33,7 +33,7 @@ def compute_supplier_stats(historique: List[dict], fournisseur: Optional[str]) -
 
 
 def compute_global_stats(historique: List[dict]) -> dict:
-    """Statistiques globales sur l'ensemble des documents enregistrés."""
+    """Overall statistics on all the stored documents."""
     montants     = [d["montant"] for d in historique if d.get("montant") is not None]
     fournisseurs = {(d.get("fournisseur") or "").strip().lower() for d in historique if d.get("fournisseur")}
     doc_types    = {}
@@ -56,52 +56,52 @@ def detect_anomalies(
     stats_fournisseur: dict,
     stats_globales : dict,
 ) -> List[dict]:
-    """Détecte les anomalies financières et comportementales."""
+    """Detects financial and behavioural anomalies."""
     anomalies: List[dict] = []
 
-    # ── Nouveau fournisseur ───────────────────────────────────────────────────
+    # ── New supplier ──────────────────────────────────────────────────────────
     if fournisseur and stats_fournisseur.get("nb_documents", 0) == 0:
         anomalies.append({
             "type"   : "NOUVEAU_FOURNISSEUR",
             "niveau" : "ATTENTION",
-            "message": f"Premier document enregistré pour « {fournisseur} »",
+            "message": f"First document stored for “{fournisseur}”",
         })
 
-    # ── Montant déviant vs moyenne fournisseur ───────────────────────────────
-    # Exiger ≥ 2 docs historiques : 1 seul doc = pas de référence fiable (évite auto-comparaison)
+    # ── Amount deviating from the supplier average ────────────────────────────
+    # Requires ≥ 2 historical documents: a single document is not a reliable reference (avoids self-comparison)
     if (montant_actuel and stats_fournisseur.get("montant_moyen")
             and stats_fournisseur.get("nb_documents", 0) >= 2):
         moyenne  = stats_fournisseur["montant_moyen"]
         ecart_r  = abs(montant_actuel - moyenne) / moyenne
         if ecart_r >= SEUIL_DEVIATION_ALERTE:
-            direction = "supérieur" if montant_actuel > moyenne else "inférieur"
+            direction = "above" if montant_actuel > moyenne else "below"
             anomalies.append({
                 "type"          : "MONTANT_ANORMAL",
                 "niveau"        : "ALERTE",
-                "message"       : f"Montant {direction} de {ecart_r:.0%} à la moyenne fournisseur ({moyenne:.3f} DT)",
+                "message"       : f"Amount {ecart_r:.0%} {direction} the supplier average ({moyenne:.3f} TND)",
                 "montant_actuel": montant_actuel,
                 "montant_moyen" : moyenne,
                 "ecart_pct"     : round(ecart_r * 100, 1),
             })
         elif ecart_r >= SEUIL_DEVIATION_ATTENTION:
-            direction = "supérieur" if montant_actuel > moyenne else "inférieur"
+            direction = "above" if montant_actuel > moyenne else "below"
             anomalies.append({
                 "type"          : "MONTANT_INHABITUEL",
                 "niveau"        : "ATTENTION",
-                "message"       : f"Montant {direction} de {ecart_r:.0%} à la moyenne fournisseur ({moyenne:.3f} DT)",
+                "message"       : f"Amount {ecart_r:.0%} {direction} the supplier average ({moyenne:.3f} TND)",
                 "montant_actuel": montant_actuel,
                 "montant_moyen" : moyenne,
                 "ecart_pct"     : round(ecart_r * 100, 1),
             })
 
-    # ── Montant très élevé vs moyenne globale ────────────────────────────────
+    # ── Very high amount compared with the overall average ───────────────────
     if montant_actuel and stats_globales.get("montant_moyen_global"):
         moy_g = stats_globales["montant_moyen_global"]
         if montant_actuel > moy_g * SEUIL_MONTANT_ELEVE:
             anomalies.append({
                 "type"   : "MONTANT_ELEVE",
                 "niveau" : "ATTENTION",
-                "message": f"Montant {SEUIL_MONTANT_ELEVE:.0f}× supérieur à la moyenne globale ({moy_g:.3f} DT)",
+                "message": f"Amount {SEUIL_MONTANT_ELEVE:.0f}× above the overall average ({moy_g:.3f} TND)",
             })
 
     return anomalies

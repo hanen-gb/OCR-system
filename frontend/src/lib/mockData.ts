@@ -1,6 +1,6 @@
 /**
- * mockData.ts — Données de démonstration pour le dashboard GLM-OCR
- * Adapté pour le modèle fine-tuné Goubaa/glmocr-factures (GLM-4V base)
+ * mockData.ts — Demo data for the GLM-OCR dashboard
+ * Adapted to the fine-tuned model Goubaa/glmocr-factures (GLM-OCR base)
  */
 
 export interface ProcessedDocument {
@@ -23,7 +23,7 @@ export const typeLabels: Record<string, string> = {
   facture: "Facture",
   devis: "Devis",
   bon_commande: "Bon de commande",
-  recu: "Reçu",
+  recu: "Receipt",
 };
 
 export const typeBadgeClass: Record<string, string> = {
@@ -33,7 +33,7 @@ export const typeBadgeClass: Record<string, string> = {
   recu: "bg-[hsl(262_80%_55%/0.1)] text-[hsl(262_80%_55%)]",
 };
 
-// Données GLM-OCR — résultats réels du modèle fine-tuné
+// GLM-OCR data — demo values
 export const mockDocuments: ProcessedDocument[] = [
   {
     id: "1",
@@ -169,25 +169,25 @@ export const mockDocuments: ProcessedDocument[] = [
   },
 ];
 
-// Stats mensuelles pour les graphiques
+// Monthly statistics for the charts
 export const monthlyStats = [
   { month: "Oct", factures: 8, devis: 2, bons: 1, recus: 3, inferenceAvgMs: 64000, totalDocs: 14 },
   { month: "Nov", factures: 12, devis: 3, bons: 2, recus: 4, inferenceAvgMs: 67000, totalDocs: 21 },
-  { month: "Déc", factures: 15, devis: 5, bons: 3, recus: 6, inferenceAvgMs: 65000, totalDocs: 29 },
+  { month: "Dec", factures: 15, devis: 5, bons: 3, recus: 6, inferenceAvgMs: 65000, totalDocs: 29 },
   { month: "Jan", factures: 18, devis: 4, bons: 4, recus: 5, inferenceAvgMs: 63000, totalDocs: 31 },
-  { month: "Fév", factures: 22, devis: 6, bons: 5, recus: 8, inferenceAvgMs: 61000, totalDocs: 41 },
+  { month: "Feb", factures: 22, devis: 6, bons: 5, recus: 8, inferenceAvgMs: 61000, totalDocs: 41 },
   { month: "Mar", factures: 28, devis: 8, bons: 6, recus: 10, inferenceAvgMs: 59000, totalDocs: 52 },
 ];
 
-// Distribution des types
+// Document type distribution
 export const typeDistribution = [
   { name: "Factures", value: 68, fill: "hsl(215 90% 50%)" },
   { name: "Devis", value: 15, fill: "hsl(180 55% 45%)" },
   { name: "Bons", value: 10, fill: "hsl(38 95% 50%)" },
-  { name: "Reçus", value: 7, fill: "hsl(262 60% 55%)" },
+  { name: "Receipts", value: 7, fill: "hsl(262 60% 55%)" },
 ];
 
-// Métriques GLM-OCR fine-tuné
+// Metrics of the fine-tuned GLM-OCR model
 export const metricsGLM = {
   model: "Goubaa/glmocr-factures",
   baseModel: "zai-org/GLM-OCR",

@@ -1,16 +1,16 @@
 """
-Agent 2 : L'Auditeur (Gouvernance & Conformité)
+Agent 2: the Auditor (governance & compliance)
 
-Reçoit le JSON complet de l'Agent 1 (complete_entities) + les entités de base du GLM,
-et produit un rapport d'audit avec 5 vérifications :
+Receives the full JSON of Agent 1 (complete_entities) + the base entities of the GLM model,
+and produces an audit report with 5 checks:
 
   1. check_arithmetique_lignes  — QTE × PU_HT ≈ Total_HT par ligne
   2. validation_tva_globale     — Somme TVA lignes ≈ montant_tva extrait
-  3. conformite_net_a_payer     — HT + TVA + Timbre ≈ Net à payer (TTC)
-  4. alerte_doublon             — N° déjà vu en base PostgreSQL ?
-  5. gouvernance                — Signature / Tampon présents ?
+  3. conformite_net_a_payer     — excl. VAT + VAT + stamp duty ≈ net payable (incl. VAT)
+  4. alerte_doublon             — number already stored in PostgreSQL?
+  5. gouvernance                — signature / stamp present?
 
-  → status_validite : "VALIDÉ" | "DOUBLON" | "SIGNATURE_MANQUANTE" |
+  → status_validite: "VALIDÉ" | "DOUBLON" | "SIGNATURE_MANQUANTE" |
                        "ERREUR_CALCUL" | "ERREUR_TVA" | "ERREUR_NET_A_PAYER"
 """
 
@@ -26,7 +26,7 @@ from database import check_doublon_pg
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_str(d: dict, *keys) -> str | None:
-    """Cherche la première clé non-nulle dans le dict."""
+    """Returns the first non-null key found in the dict."""
     for k in keys:
         v = d.get(k)
         if v is not None and str(v).strip():
@@ -54,12 +54,12 @@ def audit_document(
     """
     Audite un document commercial.
 
-    Paramètres :
+    Parameters:
       complete_entities : sortie de l'Agent 1 (merge de base + augmented + visual)
-      base_entities     : entités extraites par le modèle GLM fine-tuné
-                          (num_facture, montant_ttc, etc.) — peut être {} ou None
+      base_entities     : entities extracted by the fine-tuned GLM model
+                          (num_facture, montant_ttc, etc.) — may be {} or None
 
-    Retourne un dict d'audit complet.
+    Returns a complete audit dict.
     """
     base     = base_entities or {}
     entities = complete_entities or {}
@@ -67,7 +67,7 @@ def audit_document(
     doc_type = _get_str(entities, "_document_type") or "facture"
     is_traite = "lettre" in doc_type or "change" in doc_type
 
-    # ── Résolution des champs clés selon le type de document ─────────────────
+    # ── Key fields according to the document type ────────────────────────────
     if is_traite:
         doc_number  = _get_str(base, "num_lettre") or _get_str(entities, "num_lettre")
         fournisseur = _get_str(base, "tireur")      or _get_str(entities, "tireur")
@@ -87,10 +87,10 @@ def audit_document(
     montant_tva  = _get_num(entities, "montant_tva")
     timbre       = _get_num(entities, "timbre_fiscal")
 
-    # ── 1. Détection de doublon ───────────────────────────────────────────────
+    # ── 1. Duplicate detection ───────────────────────────────────────────────
     alerte_doublon = check_doublon_pg(doc_type, doc_number)
 
-    # ── 2. Vérification arithmétique ligne par ligne ──────────────────────────
+    # ── 2. Line-by-line arithmetic check ─────────────────────────────────────
     check_lignes    = check_arithmetic_lines(articles)
     nb_erreurs      = sum(1 for c in check_lignes if c["status"] == "ERREUR")
     nb_incomplets   = sum(1 for c in check_lignes if c["status"] == "INCOMPLET")
@@ -98,20 +98,20 @@ def audit_document(
     # ── 3. Validation TVA globale ─────────────────────────────────────────────
     validation_tva = validate_tva_globale(articles, montant_tva)
 
-    # ── 4. Conformité Net à Payer ─────────────────────────────────────────────
+    # ── 4. Net payable compliance ────────────────────────────────────────────
     conformite_net = check_net_a_payer(montant_ht, montant_tva, timbre, montant_ttc)
 
     # ── 5. Gouvernance (signatures, tampons) ──────────────────────────────────
     gouvernance = check_governance(entities)
 
-    # ── Statut final (priorité décroissante) ─────────────────────────────────
+    # ── Final status (decreasing priority) ───────────────────────────────────
     if alerte_doublon["status"] == "DOUBLON":
         status = "DOUBLON"
     elif gouvernance["status"] == "MANQUANT" and not is_traite:
-        # Pour les factures : signature manquante = avertissement, pas bloquant
+        # Invoices: missing signature = warning, not blocking
         status = "SIGNATURE_MANQUANTE"
     elif gouvernance["status"] == "MANQUANT" and is_traite:
-        # Pour les traites : signature manquante = bloquant
+        # Bills of exchange: missing signature = blocking
         status = "SIGNATURE_MANQUANTE"
     elif nb_erreurs > 0:
         status = "ERREUR_CALCUL"
@@ -122,8 +122,8 @@ def audit_document(
     else:
         status = "VALIDÉ"
 
-    # NB : l'enregistrement persistant se fait dans PostgreSQL via save_document()
-    # (assistant/api/main.py), appelé après l'audit.
+    # Note: the document is persisted in PostgreSQL by save_document()
+    # (assistant/api/main.py), called after the audit.
 
     # ── Rapport final ─────────────────────────────────────────────────────────
     return {

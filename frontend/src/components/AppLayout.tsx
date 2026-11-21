@@ -32,7 +32,7 @@ const useNavSections = (t: (k: string) => string) => [
 
 interface AppLayoutProps { children: React.ReactNode; }
 
-/* ── Avatar initiales ou photo ── */
+/* ── Avatar initials or photo ── */
 function Avatar({ user }: { user: { displayName: string; avatarColor?: string; photo?: string } }) {
   if (user.photo) {
     return (
@@ -59,7 +59,7 @@ function Avatar({ user }: { user: { displayName: string; avatarColor?: string; p
   );
 }
 
-/* ── Contenu de la sidebar ── */
+/* ── Sidebar content ── */
 function SidebarContent({
   collapsed,
   onClose,
@@ -81,7 +81,7 @@ function SidebarContent({
 
   return (
     <div className="flex flex-col h-full" style={{ background: "hsl(var(--sidebar-background))" }}>
-      {/* Logo — même hauteur que la topbar (h-14 = 56px) */}
+      {/* Logo — same height as the top bar (h-14 = 56px) */}
       <div
         className="flex items-center gap-2.5 px-3 h-14 shrink-0"
         style={{ borderBottom: "1px solid hsl(var(--sidebar-border))" }}
@@ -339,7 +339,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
             <Menu style={{ width: 20, height: 20 }} />
           </button>
 
-          {/* Badge backend — collé à gauche sur desktop */}
+          {/* Backend badge — aligned left on desktop */}
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium led-glow"
             style={{ background: "hsl(var(--success-bg))", color: "hsl(var(--success))" }}
@@ -355,7 +355,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         </main>
       </div>
 
-      {/* Assistant IA flottant — visible sur toutes les pages */}
+      {/* Floating AI assistant — visible on every page */}
       <ChatbotWidget />
     </div>
   );

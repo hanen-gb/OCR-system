@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ========== DARK THEME (défaut) ========== */
+/* ========== DARK THEME (default) ========== */
 @layer base {
   :root {
     --background: 222 35% 10%;

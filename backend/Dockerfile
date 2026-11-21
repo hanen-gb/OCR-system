@@ -1,8 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Dockerfile — Backend GLM-OCR  (Hugging Face Spaces — Docker SDK)
 # rebuild: 2026-04-08
-# Port exposé : 7860  (obligatoire HF Spaces)
-# RAM estimée : ~8 Go float16 sur GPU T4
+# Exposed port: 7860  (required by Hugging Face Spaces)
+# Estimated memory: ~8 GB in float16 on a T4 GPU
 # ──────────────────────────────────────────────────────────────────────────────
 
 FROM python:3.10-slim
@@ -16,7 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TRANSFORMERS_CACHE=/app/.hf_cache \
     MPLBACKEND=Agg
 
-# ── Dépendances système ──────────────────────────────────────────────────────
+# ── System dependencies ──────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -27,10 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Répertoire de travail ────────────────────────────────────────────────────
+# ── Working directory ────────────────────────────────────────────────────────
 WORKDIR /app
 
-# ── Installer les dépendances Python ─────────────────────────────────────────
+# ── Python dependencies ──────────────────────────────────────────────────────
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt

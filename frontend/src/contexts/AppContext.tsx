@@ -27,7 +27,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => (localStorage.getItem(LANG_KEY) as Lang) ?? "en"
   );
 
-  // Applique la classe sur <html>
+  // Applies the class on <html>
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "light") {

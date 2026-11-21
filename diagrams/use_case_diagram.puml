@@ -1,0 +1,104 @@
+@startuml use_case_diagram
+left to right direction
+
+skinparam backgroundColor         #F8FAFC
+skinparam actorStyle               awesome
+skinparam ArrowColor               #4F46E5
+skinparam ArrowFontColor           #374151
+skinparam ArrowFontSize            11
+skinparam rectangleBackgroundColor #F8FAFC
+skinparam rectangleBorderColor     #CBD5E1
+skinparam noteBorderColor          #94A3B8
+skinparam noteBackgroundColor      #FFFBEB
+skinparam usecase {
+  BackgroundColor #EEF2FF
+  BorderColor     #4F46E5
+  FontColor       #1E1B4B
+  FontSize        11
+}
+skinparam usecase<<admin>> {
+  BackgroundColor #FEE2E2
+  BorderColor     #DC2626
+  FontColor       #7F1D1D
+}
+
+actor "User\n(role: user)"           as U
+actor "Administrator\n(role: admin)" as A
+U <|-- A : inherits
+
+rectangle "Available to every account" {
+  rectangle "Document processing" #ECFDF5 {
+    usecase "Upload a document\n(image / PDF / camera)" as UC1
+    usecase "Classify\n(invoice / bill of exchange)" as UC2
+    usecase "Extract the fields\n(GLM-OCR + LoRA)"       as UC3
+  }
+  rectangle "Agentic pipeline" {
+    usecase "Complete the extraction\n(Agent 1 — Extractor)" as UC4
+    usecase "Audit the document\n(Agent 2 — Auditor)"        as UC5
+    usecase "Detect anomalies\n(Agent 3 — Analyst)"          as UC6
+  }
+  rectangle "Review and interaction" {
+    usecase "Correct the fields\n(human-in-the-loop)"  as UC7
+    usecase "Re-audit after correction"                as UC8
+    usecase "Ask the chatbot\n(Agent 4)"               as UC9
+    usecase "Save to PostgreSQL"                       as UC10
+  }
+  rectangle "Consultation" #F5F3FF {
+    usecase "Dashboard (KPIs)"            as UC11
+    usecase "Document history"            as UC12
+    usecase "Calendar"                    as UC13
+    usecase "Profile, theme, language"    as UC14
+  }
+}
+
+rectangle "Administrators only" #FEF2F2 {
+  usecase "Manage users"                         <<admin>> as UC15
+  usecase "Delete a stored document\n(DELETE /documents)" <<admin>> as UC16
+  usecase "Empty the database"                   <<admin>> as UC17
+  usecase "Send the daily report"                <<admin>> as UC18
+}
+
+usecase "Receive an e-mail alert" as UC_ALERT
+
+U --> UC1
+U --> UC7
+U --> UC9
+U --> UC10
+U --> UC11
+U --> UC12
+U --> UC13
+U --> UC14
+A --> UC15
+A --> UC16
+A --> UC17
+A --> UC18
+
+UC1 ..> UC2      : <<include>>
+UC2 ..> UC3      : <<include>>
+UC3 ..> UC4      : <<include>>
+UC4 ..> UC5      : <<include>>
+UC5 ..> UC6      : <<include>>
+UC5 ..> UC_ALERT : <<extend>>
+UC7 ..> UC8      : <<extend>>
+UC_ALERT --> U
+
+note right of UC3
+  Models on the Hugging Face Hub:
+  • Goubaa/glmocr-factures  (5 fields)
+  • Goubaa/glm-traite-tunis (7 fields)
+  Classifier: MobileNetV2
+end note
+
+note right of UC5
+  Deterministic checks (no LLM):
+  line arithmetic, amount in words,
+  due date, RIB, duplicates,
+  signatures / stamps
+end note
+
+note bottom of A
+  Admin routes require a JWT issued by
+  POST /token and checked with
+  Depends(verify_token) → 403 if role != "admin"
+end note
+@enduml

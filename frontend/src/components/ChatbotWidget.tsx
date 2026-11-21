@@ -1,8 +1,8 @@
 /**
  * ChatbotWidget — Panneau flottant ODSINET Assistant
- * Disponible sur toutes les pages (monté dans AppLayout).
- * Le contexte du document courant est injecté via ChatbotContext
- * (mis à jour par UploadPage quand une analyse est disponible).
+ * Available on every page (mounted in AppLayout).
+ * The context of the current document is injected through ChatbotContext
+ * (updated by UploadPage when an analysis is available).
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -35,7 +35,7 @@ export default function ChatbotWidget() {
     if (open) setTimeout(() => inputRef.current?.focus(), 150);
   }, [open]);
 
-  // Ping agent health une seule fois au montage
+  // Ping the agent health endpoint once on mount
   useEffect(() => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 10_000);
@@ -64,12 +64,12 @@ export default function ChatbotWidget() {
       });
       setMessages([...next, {
         role    : "assistant",
-        content : res.response || "Désolé, réponse vide.",
+        content : res.response || "Sorry, empty answer.",
       }]);
     } catch {
       setMessages([...next, {
         role    : "assistant",
-        content : "Désolé, une erreur réseau est survenue. Vérifiez que l'agent tourne sur le port 8002.",
+        content : "Sorry, a network error occurred. Check that the agent is running on port 8002.",
       }]);
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ export default function ChatbotWidget() {
               border: "1px solid hsl(var(--border))",
             }}
           >
-            {/* En-tête */}
+            {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 shrink-0"
               style={{ background: "hsl(262 60% 55% / 0.12)", borderBottom: "1px solid hsl(var(--border))" }}>
               <div className="flex items-center gap-2.5">
@@ -108,7 +108,7 @@ export default function ChatbotWidget() {
                 <div>
                   <p className="text-sm font-semibold text-foreground leading-none">ODSINET Assistant</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5 leading-none">
-                    {online === false ? "Agent hors ligne" : hasDocContext ? "Contexte document chargé ✓" : "Mode général"}
+                    {online === false ? "Agent offline" : hasDocContext ? "Document context loaded ✓" : "General mode"}
                   </p>
                 </div>
               </div>
@@ -116,7 +116,7 @@ export default function ChatbotWidget() {
                 {messages.length > 0 && (
                   <button
                     onClick={() => setMessages([])}
-                    title="Effacer la conversation"
+                    title="Clear the conversation"
                     className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -141,12 +141,12 @@ export default function ChatbotWidget() {
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {hasDocContext
-                      ? "Posez vos questions sur les entités, l'audit ou les remarques détectées."
-                      : "Posez vos questions sur le système OCR ODSINET ou naviguez vers l'analyse pour accéder au contexte complet."}
+                      ? "Ask questions about the entities, the audit or the detected remarks."
+                      : "Ask questions about the ODSINET OCR system, or open an analysis to use its full context."}
                   </p>
                   {hasDocContext && (
                     <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
-                      {["Résumé du document", "Alertes détectées", "Recommandations"].map((q) => (
+                      {["Document summary", "Detected alerts", "Recommendations"].map((q) => (
                         <button key={q}
                           onClick={() => { setInput(q); inputRef.current?.focus(); }}
                           className="text-[10px] px-2.5 py-1 rounded-full transition-colors"
@@ -187,7 +187,7 @@ export default function ChatbotWidget() {
                   </div>
                   <div className="rounded-2xl px-3 py-2 text-xs" style={{ background: "hsl(var(--muted))", borderBottomLeftRadius: 4 }}>
                     <Loader2 className="w-3 h-3 animate-spin inline mr-1 opacity-60" />
-                    <span className="text-muted-foreground">En réflexion…</span>
+                    <span className="text-muted-foreground">Thinking…</span>
                   </div>
                 </div>
               )}
@@ -245,7 +245,7 @@ export default function ChatbotWidget() {
           </AnimatePresence>
         </button>
 
-        {/* Badge nombre de réponses non lus */}
+        {/* Unread answers badge */}
         {!open && unread > 0 && (
           <span
             className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"

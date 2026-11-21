@@ -5,51 +5,51 @@ setlocal
 
 REM ── Venv ────────────────────────────────────────────────────────────
 echo.
-echo [1/4] Activation du venv...
+echo [1/4] Activating the venv...
 call "%ROOTDIR%venv\Scripts\activate.bat"
 if errorlevel 1 (
-    echo [ERREUR] venv introuvable : %ROOTDIR%venv\
+    echo [ERROR] venv not found: %ROOTDIR%venv\
     pause & exit /b 1
 )
 echo       OK - Python: & python --version
 
 REM ── langgraph-cli ───────────────────────────────────────────────────
 echo.
-echo [2/4] Verification langgraph-cli...
+echo [2/4] Checking langgraph-cli...
 langgraph --version >nul 2>&1
 if errorlevel 1 (
-    echo       Installation de langgraph-cli...
+    echo       Installing langgraph-cli...
     pip install -U "langgraph-cli[inmem]"
     if errorlevel 1 (
-        echo [ERREUR] Echec installation langgraph-cli
+        echo [ERROR] langgraph-cli installation failed
         pause & exit /b 1
     )
 ) else (
     echo       OK - & langgraph --version
 )
 
-REM ── Se placer dans assistant/ (ou est langgraph.json) ───────────────
+REM ── Move to assistant/ (where langgraph.json is) ───────────────────
 echo.
-echo [3/4] Demarrage du serveur LangGraph Studio...
+echo [3/4] Starting the LangGraph Studio server...
 cd /d "%ROOTDIR%assistant"
-echo       Repertoire: %CD%
+echo       Folder: %CD%
 echo       Config    : langgraph.json
 echo.
 
-REM ── Ouvrir le navigateur apres 5 secondes ───────────────────────────
-echo [4/4] Ouverture du navigateur dans 5 secondes...
+REM ── Open the browser after 5 seconds ────────────────────────────────
+echo [4/4] Opening the browser in 5 seconds...
 start /b cmd /c "timeout /t 5 >nul && start https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:8123"
 
 echo.
 echo =====================================================================
-echo   Serveur en cours de demarrage sur http://127.0.0.1:8123
-echo   Si erreur d'import s'affiche -> voir message ci-dessous
-echo   Ctrl+C pour arreter le serveur
+echo   Server starting on http://127.0.0.1:8123
+echo   If an import error appears -> see the message below
+echo   Ctrl+C to stop the server
 echo =====================================================================
 echo.
 
 langgraph dev --host 127.0.0.1 --port 8123
 
 echo.
-echo [INFO] Le serveur s'est arrete.
+echo [INFO] The server has stopped.
 pause

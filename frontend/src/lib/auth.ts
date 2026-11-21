@@ -1,5 +1,5 @@
 /**
- * auth.ts — Authentification multi-utilisateur avec profils (localStorage)
+ * auth.ts — Multi-user authentication with profiles (localStorage)
  */
 
 export type Role = "admin" | "user";
@@ -13,7 +13,7 @@ export interface UserProfile {
   email: string;
   role: Role;
   avatarColor: string;
-  photo?: string;       // base64 data-URL de la photo de profil
+  photo?: string;       // base64 data URL of the profile photo
   bio: string;
   createdAt: string;
   lang: Lang;
@@ -32,11 +32,29 @@ const AVATAR_COLORS = [
   "hsl(180 55% 40%)",
 ];
 
-/** Utilisateurs par défaut (toujours présents) */
+/**
+ * Demo admin password: read from VITE_DEMO_ADMIN_PASSWORD, otherwise a random one is
+ * generated on first start and printed once in the browser console.
+ */
+function randomPassword(length = 16): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
+const DEMO_ADMIN_PASSWORD: string = (() => {
+  const fromEnv = import.meta.env.VITE_DEMO_ADMIN_PASSWORD as string | undefined;
+  if (fromEnv) return fromEnv;
+  const generated = randomPassword();
+  console.warn(`[demo] No VITE_DEMO_ADMIN_PASSWORD set — generated admin password: ${generated}`);
+  return generated;
+})();
+
+/** Default users (always present) */
 const DEFAULT_USERS: UserProfile[] = [
   {
     username: "admin",
-    password: "REDACTED",
+    password: DEMO_ADMIN_PASSWORD,
     displayName: "Administrator",
     email: "admin@example.com",
     role: "admin",
@@ -55,13 +73,13 @@ function loadUsers(): UserProfile[] {
   if (!raw) return [...DEFAULT_USERS];
   try {
     const stored: UserProfile[] = JSON.parse(raw);
-    // Fusionner les defaults (au cas où ils ont été supprimés)
+    // Merge the defaults (in case they were deleted)
     const merged = [...DEFAULT_USERS];
     for (const u of stored) {
       if (!merged.find((d) => d.username === u.username)) {
         merged.push(u);
       } else {
-        // Mettre à jour le default avec les données modifiées de l'utilisateur
+        // Update the default with the data modified by the user
         const idx = merged.findIndex((d) => d.username === u.username);
         merged[idx] = u;
       }
@@ -146,7 +164,7 @@ export function updateProfile(
   if (idx === -1) return false;
   users[idx] = { ...users[idx], ...updates };
   saveUsers(users);
-  // Mettre à jour la session si c'est l'utilisateur courant
+  // Update the session if this is the current user
   const session = getSession();
   if (session?.username === username) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(users[idx]));
@@ -171,7 +189,7 @@ export function changePassword(
 }
 
 export function deleteUser(username: string): boolean {
-  // Ne pas supprimer les admins par défaut
+  // Do not delete the default admins
   if (username === "admin") return false;
   const users = loadUsers().filter((u) => u.username !== username);
   saveUsers(users);

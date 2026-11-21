@@ -4,7 +4,7 @@ Connexion PostgreSQL — pool psycopg2.
 Variable d'environnement requise (assistant/.env) :
   DATABASE_URL=postgresql://user:password@localhost:5432/ocr_pfe
 
-Appeler init_db() au démarrage de l'API pour créer les tables si elles n'existent pas.
+Call init_db() when the API starts to create the tables if they do not exist.
 """
 
 import os
@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-# Connexion lazy — ouverte à la première utilisation
+# Lazy connection — opened on first use
 _connection = None
 
 
@@ -33,7 +33,7 @@ def _get_raw_conn():
 
 @contextmanager
 def get_conn():
-    """Context manager : yield une connexion, commit ou rollback automatique."""
+    """Context manager: yields a connection, commits or rolls back automatically."""
     conn = _get_raw_conn()
     try:
         yield conn
@@ -45,8 +45,8 @@ def get_conn():
 
 def init_db():
     """
-    Crée les 3 tables PostgreSQL si elles n'existent pas encore.
-    À appeler une fois au démarrage de l'API.
+    Creates the 3 PostgreSQL tables if they do not exist yet.
+    Call it once when the API starts.
     """
     ddl = """
     -- ENUMs (ignorés si déjà créés)
@@ -112,6 +112,6 @@ def init_db():
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
-        print("[DB] Tables PostgreSQL initialisées")
+        print("[DB] PostgreSQL tables initialised")
     except Exception as e:
-        print(f"[DB] PostgreSQL non disponible → désactivé ({e})")
+        print(f"[DB] PostgreSQL unavailable → disabled ({e})")

@@ -1,20 +1,20 @@
 """
 Outil de notification email — Agent 2 : L'Auditeur.
 
-Déclenche un email d'alerte si au moins une condition est remplie :
-  1. Échéance dépassée ou dans ≤ ALERT_DEADLINE_DAYS jours (défaut : 2)
-  2. Montant TTC > ALERT_MONTANT_RATIO × moyenne des documents du même type en DB
+Sends an alert e-mail when at least one condition is met:
+  1. Due date passed or within ≤ ALERT_DEADLINE_DAYS days (default: 2)
+  2. Total amount incl. VAT > ALERT_MONTANT_RATIO × average of the documents of the same type in the database
      (fallback : montant_ttc > ALERT_THRESHOLD_DT si historique insuffisant)
-  3. Nouveau document (jamais vu en base) ET montant TTC > ALERT_NOUVEAU_MONTANT_DT (défaut : 4000 DT)
+  3. New document (never seen in the database) AND total amount incl. VAT > ALERT_NOUVEAU_MONTANT_DT (default: 4000 TND)
 
-Variables à ajouter dans assistant/.env :
-  GMAIL_SENDER             adresse Gmail expéditrice (ex: expediteur@gmail.com)
-  GMAIL_APP_PASSWORD       mot de passe d'application Google (16 caractères)
+Variables to add to assistant/.env:
+  GMAIL_SENDER             sender Gmail address (e.g. expediteur@gmail.com)
+  GMAIL_APP_PASSWORD       Google application password (16 characters)
   ALERT_EMAIL_TO           destinataire (ex: destinataire@example.com)
-  ALERT_DEADLINE_DAYS      jours avant échéance pour alerter (défaut : 2)
-  ALERT_THRESHOLD_DT       seuil fixe de repli en DT si pas d'historique (défaut : 5000)
-  ALERT_MONTANT_RATIO      ratio vs moyenne DB pour déclencher l'alerte (défaut : 3.0)
-  ALERT_NOUVEAU_MONTANT_DT seuil en DT pour un NOUVEAU document (défaut : 4000)
+  ALERT_DEADLINE_DAYS      days before the due date to send an alert (default: 2)
+  ALERT_THRESHOLD_DT       fixed fallback threshold in TND when there is no history (default: 5000)
+  ALERT_MONTANT_RATIO      ratio vs database average that triggers the alert (default: 3.0)
+  ALERT_NOUVEAU_MONTANT_DT threshold in TND for a NEW document (default: 4000)
 """
 
 import os
@@ -29,8 +29,8 @@ ALERT_MONTANT_RATIO      = float(os.getenv("ALERT_MONTANT_RATIO",      "3.0"))
 ALERT_NOUVEAU_MONTANT_DT = float(os.getenv("ALERT_NOUVEAU_MONTANT_DT", "4000"))
 ALERT_EMAIL_TO           = os.getenv("ALERT_EMAIL_TO",                 "")
 GMAIL_SENDER             = os.getenv("GMAIL_SENDER",                   "")
-# Google affiche le mot de passe d'application avec des espaces ("xxxx xxxx xxxx xxxx") —
-# on les retire car Gmail SMTP refuse l'authentification si le mot de passe les contient.
+# Google shows the application password with spaces ("xxxx xxxx xxxx xxxx") —
+# they are removed because Gmail SMTP rejects the login when the password contains them.
 GMAIL_APP_PASSWORD       = os.getenv("GMAIL_APP_PASSWORD",             "").replace(" ", "")
 
 _DATE_FORMATS = [
@@ -61,11 +61,11 @@ def check_montant_vs_historique(
     historique: list,
 ) -> str | None:
     """
-    Compare le montant du document courant contre la moyenne des documents
-    du même type (facture ou traite) présents en base PostgreSQL.
+    Compares the amount of the current document with the average amount of the
+    documents of the same type (invoice or bill) stored in PostgreSQL.
 
-    Retourne une chaîne de raison d'alerte, ou None si pas d'alerte.
-    Nécessite au moins 3 documents du même type pour être fiable.
+    Returns an alert reason string, or None when there is no alert.
+    Requires at least 3 documents of the same type to be reliable.
     """
     if montant_ttc is None or montant_ttc <= 0:
         return None
@@ -79,10 +79,10 @@ def check_montant_vs_historique(
     ]
 
     if len(docs_meme_type) < 3:
-        # Pas assez d'historique → fallback seuil fixe
+        # Not enough history → fixed threshold fallback
         if montant_ttc > ALERT_THRESHOLD_DT:
             type_label = "traite" if is_t else "facture"
-            return (f"Montant TTC ({montant_ttc:,.3f} DT) dépasse le seuil de "
+            return (f"Total amount incl. VAT ({montant_ttc:,.3f} TND) exceeds the threshold of "
                     f"{ALERT_THRESHOLD_DT:,.0f} DT (historique insuffisant pour comparaison)")
         return None
 
@@ -103,15 +103,15 @@ def check_nouveau_montant_eleve(
     is_nouveau : bool,
 ) -> str | None:
     """
-    Alerte si le document est NOUVEAU (jamais vu en base) et que son montant TTC
-    dépasse ALERT_NOUVEAU_MONTANT_DT (défaut : 4000 DT).
+    Alerts when the document is NEW (never seen in the database) and its total amount
+    incl. VAT exceeds ALERT_NOUVEAU_MONTANT_DT (default: 4000 TND).
 
-    Retourne une chaîne de raison d'alerte, ou None si pas d'alerte.
+    Returns an alert reason string, or None when there is no alert.
     """
     if not is_nouveau or montant_ttc is None or montant_ttc <= 0:
         return None
     if montant_ttc > ALERT_NOUVEAU_MONTANT_DT:
-        return (f"Nouveau document détecté avec un montant TTC élevé "
+        return (f"New document detected with a high total amount incl. VAT "
                 f"({montant_ttc:,.3f} DT > seuil de {ALERT_NOUVEAU_MONTANT_DT:,.0f} DT)")
     return None
 
@@ -124,35 +124,35 @@ def check_alert_conditions(
     is_nouveau    : bool = False,
 ) -> list[str]:
     """
-    Retourne la liste des raisons d'alerte (liste vide = pas d'alerte).
+    Returns the list of alert reasons (empty list = no alert).
 
     Conditions :
-      1. Échéance dépassée ou dans ≤ ALERT_DEADLINE_DAYS jours
-      2. Montant TTC anormal vs historique du même type (ou > seuil fixe si pas d'historique)
-      3. Nouveau document ET montant TTC > ALERT_NOUVEAU_MONTANT_DT
+      1. Due date passed or within ≤ ALERT_DEADLINE_DAYS days
+      2. Abnormal total amount compared with the history of the same type (or > fixed threshold without history)
+      3. New document AND total amount incl. VAT > ALERT_NOUVEAU_MONTANT_DT
     """
     alerts = []
 
-    # ── Condition 1 : Échéance ────────────────────────────────────────────────
+    # ── Condition 1: due date ─────────────────────────────────────────────────
     echeance = _parse_date(date_echeance)
     if echeance is not None:
         delta = (echeance - date.today()).days
         if delta < 0:
             alerts.append(
-                f"Échéance dépassée depuis {-delta} jour(s) — {echeance.strftime('%d/%m/%Y')}"
+                f"Due date passed {-delta} day(s) ago — {echeance.strftime('%d/%m/%Y')}"
             )
         elif delta <= ALERT_DEADLINE_DAYS:
             alerts.append(
-                f"Échéance dans {delta} jour(s) — {echeance.strftime('%d/%m/%Y')} "
+                f"Due in {delta} day(s) — {echeance.strftime('%d/%m/%Y')} "
                 f"(seuil d'alerte : {ALERT_DEADLINE_DAYS} jour(s))"
             )
 
-    # ── Condition 2 : Montant anormal vs historique ───────────────────────────
+    # ── Condition 2: abnormal amount vs history ──────────────────────────────
     raison_montant = check_montant_vs_historique(montant_ttc, doc_type, historique or [])
     if raison_montant:
         alerts.append(raison_montant)
 
-    # ── Condition 3 : Nouveau document + montant élevé ────────────────────────
+    # ── Condition 3: new document + high amount ───────────────────────────────
     raison_nouveau = check_nouveau_montant_eleve(montant_ttc, is_nouveau)
     if raison_nouveau:
         alerts.append(raison_nouveau)
@@ -171,23 +171,23 @@ def send_alert_email(
 ) -> bool:
     """
     Envoie l'email d'alerte via Gmail SMTP (port 587, STARTTLS).
-    Retourne True si l'envoi réussit, False sinon.
+    Returns True if the e-mail was sent, False otherwise.
     """
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
-        print("[NOTIFIER] GMAIL_SENDER ou GMAIL_APP_PASSWORD absent dans .env → email désactivé")
+        print("[NOTIFIER] GMAIL_SENDER or GMAIL_APP_PASSWORD missing in .env → e-mail disabled")
         return False
 
     doc_type_label = "Lettre de change" if _is_traite_type(doc_type) else "Facture"
     montant_str    = f"{montant_ttc:,.3f} DT" if montant_ttc is not None else "Non disponible"
-    now_str        = datetime.now().strftime("%d/%m/%Y à %H:%M")
+    now_str        = datetime.now().strftime("%d/%m/%Y at %H:%M")
 
     statut_map = {
-        "VALIDÉ"                 : "Validé — aucune erreur détectée",
-        "ERREUR_CALCUL"          : "Erreur de calcul sur les lignes d'articles",
-        "ERREUR_MONTANT_LETTRES" : "Incohérence lettres/chiffres",
-        "DOUBLON"                : "Document déjà enregistré (doublon)",
+        "VALIDÉ"                 : "Validated — no error detected",
+        "ERREUR_CALCUL"          : "Calculation error on the item lines",
+        "ERREUR_MONTANT_LETTRES" : "Amount in words and figures do not match",
+        "DOUBLON"                : "Document already stored (duplicate)",
         "SIGNATURE_MANQUANTE"    : "Signature ou tampon manquant",
-        "ECHEANCE_DEPASSEE"      : "Échéance dépassée",
+        "ECHEANCE_DEPASSEE"      : "Due date passed",
     }
     statut_texte  = statut_map.get(status_validite or "", status_validite or "Non disponible")
     alertes_texte = "\n".join(f"  ⚠ {a}" for a in alerts)
@@ -235,11 +235,11 @@ Système de Gestion Documentaire — OCR PFE GLM
             server.starttls()
             server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_SENDER, ALERT_EMAIL_TO, msg.as_string())
-        print(f"[NOTIFIER] Email envoyé à {ALERT_EMAIL_TO} ({len(alerts)} alerte(s))")
+        print(f"[NOTIFIER] E-mail sent to {ALERT_EMAIL_TO} ({len(alerts)} alert(s))")
         return True
     except smtplib.SMTPAuthenticationError:
-        print("[NOTIFIER] Authentification Gmail échouée — vérifier GMAIL_APP_PASSWORD dans .env")
+        print("[NOTIFIER] Gmail authentication failed — check GMAIL_APP_PASSWORD in .env")
         return False
     except Exception as exc:
-        print(f"[NOTIFIER] Échec envoi email : {exc}")
+        print(f"[NOTIFIER] E-mail sending failed: {exc}")
         return False

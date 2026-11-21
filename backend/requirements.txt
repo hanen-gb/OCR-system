@@ -14,7 +14,7 @@ torch==2.2.2
 torchvision==0.17.2
 
 # ── GLM-OCR / Transformers ────────────────────────────────────────────────────
-# Version git obligatoire : zai-org/GLM-OCR utilise du custom code non présent dans les releases
+# Git version required: zai-org/GLM-OCR uses custom code not yet in the releases
 git+https://github.com/huggingface/transformers.git
 accelerate==1.3.0
 safetensors==0.4.3

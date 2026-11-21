@@ -1,0 +1,132 @@
+@startuml class_diagram
+skinparam backgroundColor            #F8FAFC
+skinparam classBackgroundColor       #EEF2FF
+skinparam classBorderColor           #4F46E5
+skinparam classHeaderBackgroundColor #4F46E5
+skinparam ArrowColor                 #4F46E5
+
+' ── Data model (PostgreSQL) ───────────────────────────────────────────────
+enum DocType {
+  FACTURE
+  TRAITE
+}
+
+abstract class Document {
+  +id             : int
+  +filename       : str
+  +doc_type       : DocType
+  +status         : str
+  +audit_status   : str
+  +owner_username : str
+  +created_at     : datetime
+}
+
+class Facture {
+  +numero      : str
+  +date        : date
+  +fournisseur : str
+  +client      : str
+  +montant_ttc : float
+  +notes_agent : JSON
+}
+
+class Traite {
+  +numero        : str
+  +date_echeance : date
+  +tireur        : str
+  +tire          : str
+  +rib           : str
+  +domiciliation : str
+  +montant       : float
+  +notes_agent   : JSON
+}
+
+' ── Inference (Modal) ─────────────────────────────────────────────────────
+class InferenceService {
+  +classifier      : MobileNetV2
+  +invoice_model   : GLM-OCR + LoRA
+  +bill_model      : GLM-OCR + LoRA
+  +predict(image)  : PredictResult
+}
+
+class PredictResult {
+  +entities                  : Entity[]
+  +doc_type                  : str
+  +classification_confidence : float
+  +timing                    : dict
+}
+
+class Entity {
+  +label : str
+  +text  : str
+}
+
+' ── LangGraph agents ──────────────────────────────────────────────────────
+abstract class Agent {
+  +graph : StateGraph
+  +invoke(state) : State
+}
+
+class ExtractorAgent {
+  detect_type → extract_native / extract_vision
+  → extract_entities → extract_visual → merge
+}
+
+class AuditorAgent {
+  prepare → arithmetic / lettres (invoice)
+  prepare → montant_traite / echeance / rib (bill)
+  → doublon → gouvernance → verdict → notification
+}
+
+class AnalystAgent {
+  load_history → compute_stats
+  → detect_anomalies → generate_insights → verdict
+}
+
+class ChatbotAgent {
+  understand_intent → query_db → generate_response
+}
+
+class AuditReport {
+  +status_validite : str
+  +checks          : dict
+  +gouvernance     : dict
+}
+
+class AnalystReport {
+  +alert_level : str
+  +anomalies   : List[dict]
+  +insights    : str
+}
+
+class Repository {
+  +save_document()
+  +check_doublon_pg()
+  +get_documents_pg()
+  +get_facture(doc_id)
+  +get_traite(doc_id)
+}
+
+class Notifier {
+  +check_alert_conditions()
+  +send_alert_email()
+}
+
+Document <|-- Facture
+Document <|-- Traite
+Document --> DocType
+InferenceService ..> PredictResult : <<create>>
+PredictResult "1" *-- "n" Entity
+Agent <|-- ExtractorAgent
+Agent <|-- AuditorAgent
+Agent <|-- AnalystAgent
+Agent <|-- ChatbotAgent
+ExtractorAgent ..> PredictResult : uses
+AuditorAgent ..> AuditReport : <<produce>>
+AuditorAgent --> Repository : duplicate check
+AuditorAgent --> Notifier : triggers
+AnalystAgent ..> AnalystReport : <<produce>>
+AnalystAgent --> Repository : reads history
+ChatbotAgent --> Repository : queries
+Repository --> Document
+@enduml

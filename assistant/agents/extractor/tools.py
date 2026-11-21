@@ -1,24 +1,24 @@
 """
-Outils de l'Agent 1 — L'Extracteur
+Tools of Agent 1 — the Extractor
 
 4 outils LangGraph :
-  1. detect_file_type           — Détecte le type de fichier (pdf_native / pdf_scanned / image)
-  2. extract_text_pdf_native    — Extrait le texte d'un PDF natif via pdfplumber
-  3. extract_text_vision        — Extrait le texte via OCR.space (ou Gemini/Groq en fallback)
-  4. extract_augmented_entities — Extrait les entités JSON via Mistral (ou Gemini/Groq en fallback)
+  1. detect_file_type           — Detects the file type (pdf_native / pdf_scanned / image)
+  2. extract_text_pdf_native    — Extracts the text of a native PDF with pdfplumber
+  3. extract_text_vision        — Extracts the text with OCR.space (Gemini/Groq as fallback)
+  4. extract_augmented_entities — Extracts the JSON entities with an LLM (Gemini/Groq as fallback)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 APIs gratuites — AUCUNE carte bancaire requise
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 VISION (OCR) — OCR.space
-  OCR_SPACE_API_KEY → ocr.space/OCRAPI → clé reçue par email
+  OCR_SPACE_API_KEY → ocr.space/OCRAPI → key sent by e-mail
   Limites gratuites : 25 000 req/mois, 1 MB par fichier
 
 EXTRACTION (LLM texte) — HuggingFace Inference API
   HF_API_KEY        → huggingface.co → Settings → Access Tokens → New token
-  Modèle            → mistralai/Mistral-7B-Instruct-v0.3 (gratuit, endpoint cloud)
-  Limites gratuites : généreuses, aucune installation locale
+  Model             → mistralai/Mistral-7B-Instruct-v0.3 (free cloud endpoint)
+  Free tier         : generous limits, no local installation
 
 FALLBACK LLM : MISTRAL_API_KEY → GOOGLE_API_KEY → GROQ_API_KEY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -37,24 +37,24 @@ from langchain_core.tools import tool
 
 load_dotenv()
 
-# ── Modèles ───────────────────────────────────────────────────────────────────
+# ── Models ────────────────────────────────────────────────────────────────────
 GROQ_BASE_URL          = "https://api.groq.com/openai/v1"
 GROQ_TEXT_MODEL        = "qwen/qwen3-32b"                          # primary texte : Qwen3 32B
 GROQ_FALLBACK_MODEL    = "llama-3.3-70b-versatile"                 # fallback 413 : 128k ctx
-GROQ_GEMMA_MODEL       = "qwen/qwen3-32b"                          # alias conservé
+GROQ_GEMMA_MODEL       = "qwen/qwen3-32b"                          # alias kept for compatibility
 GROQ_VISION_MODEL      = "meta-llama/llama-4-scout-17b-16e-instruct"  # vision multimodal Groq
 HF_MODEL               = "Qwen/Qwen2.5-7B-Instruct"
-HF_VISION_MODEL        = "Qwen/Qwen2-VL-7B-Instruct"             # vision HF (skip si 402)
+HF_VISION_MODEL        = "Qwen/Qwen2-VL-7B-Instruct"             # HF vision (skipped on HTTP 402)
 MISTRAL_MODEL          = "mistral-small-latest"
 GEMINI_MODEL           = "gemini-2.0-flash"
 OCR_SPACE_URL          = "https://api.ocr.space/parse/image"
 
-# Limite de tronquage pour les gros documents (chars → ~10k tokens)
+# Truncation limit for large documents (chars → ~10k tokens)
 _MAX_PROMPT_CHARS = 40_000
 
 
 def _truncate_prompt(prompt: str, max_chars: int = _MAX_PROMPT_CHARS) -> str:
-    """Garde le début (instructions) et la fin (schéma JSON) du prompt, coupe le milieu."""
+    """Keeps the beginning (instructions) and the end (JSON schema) of the prompt and cuts the middle."""
     if len(prompt) <= max_chars:
         return prompt
     keep = max_chars // 2
@@ -67,21 +67,21 @@ def _truncate_prompt(prompt: str, max_chars: int = _MAX_PROMPT_CHARS) -> str:
 
 def _call_llm(prompt: str) -> str:
     """
-    Chaîne de fallback LLM texte :
+    Text LLM fallback chain:
       Groq llama-3.3-70b-versatile
-        → Groq llama-3.1-8b-instant (si 413, avec prompt tronqué)
+        → Groq llama-3.1-8b-instant (on HTTP 413, with a truncated prompt)
         → HuggingFace Qwen2.5-7B   (si disponible)
         → Gemini 2.0-flash / 1.5-flash / 1.5-pro
-        → OpenAI gpt-4o-mini (tout dernier recours, si OPENAI_API_KEY défini)
+        → OpenAI gpt-4o-mini (last resort, only if OPENAI_API_KEY is set)
     """
     errors = []
 
-    # ── Groq (essai primary puis fallback si 413) ─────────────────────────────
+    # ── Groq (primary model, then fallback model on HTTP 413) ─────────────────
     if os.getenv("GROQ_API_KEY"):
-        p = _truncate_prompt(prompt)   # troncature préventive pour tous les modèles Groq
+        p = _truncate_prompt(prompt)   # preventive truncation for every Groq model
         groq_models = [
             (GROQ_TEXT_MODEL,     p),   # Qwen3-32b primary
-            (GROQ_FALLBACK_MODEL, p),   # llama fallback si Qwen quota/413
+            (GROQ_FALLBACK_MODEL, p),   # Llama fallback on Qwen quota/413
         ]
         groq_quota_hit = False
         for groq_model, p in groq_models:
@@ -103,21 +103,21 @@ def _call_llm(prompt: str) -> str:
             except Exception as e:
                 msg = str(e)
                 if "413" in msg or "too large" in msg.lower() or "request_too_large" in msg.lower():
-                    print(f"[LLM] Groq/{groq_model} 413 payload trop grand — modèle suivant")
+                    print(f"[LLM] Groq/{groq_model} 413 payload too large — trying next model")
                     errors.append(f"Groq/{groq_model} 413: {msg[:120]}")
-                    # continue → essaie GROQ_FALLBACK_MODEL avec prompt tronqué
+                    # continue → tries GROQ_FALLBACK_MODEL with a truncated prompt
                 elif "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
-                    print(f"[LLM] Groq/{groq_model} quota atteint — bascule sur HF/Gemini")
+                    print(f"[LLM] Groq/{groq_model} quota reached — switching to HF/Gemini")
                     errors.append(f"Groq/{groq_model} 429: {msg[:120]}")
-                    groq_quota_hit = True   # inutile d'essayer l'autre modèle Groq
+                    groq_quota_hit = True   # no point trying the other Groq model
                 elif "403" in msg or "401" in msg or "forbidden" in msg.lower() or "unauthorized" in msg.lower() or "invalid api key" in msg.lower():
-                    print(f"[LLM] Groq/{groq_model} clé invalide/refusée — bascule sur HF/Gemini")
+                    print(f"[LLM] Groq/{groq_model} key invalid/refused — switching to HF/Gemini")
                     errors.append(f"Groq/{groq_model} auth: {msg[:120]}")
-                    groq_quota_hit = True   # clé invalide pour tous les modèles Groq, inutile de réessayer
+                    groq_quota_hit = True   # key invalid for every Groq model, no point retrying
                 else:
-                    raise  # erreur inattendue → propager
+                    raise  # unexpected error → propagate
 
-    # ── HuggingFace (rotation compte 1 → compte 2 si 402/429) ────────────────
+    # ── HuggingFace (account 1 → account 2 rotation on 402/429) ─────────────────
     _hf_tokens = [t for t in [os.getenv("HF_API_KEY"), os.getenv("HF_API_KEY_2")] if t]
     for _idx, _hf_token in enumerate(_hf_tokens, 1):
         try:
@@ -160,8 +160,8 @@ def _call_llm(prompt: str) -> str:
                 print(f"[LLM] Gemini/{gemini_model} → {msg[:120]}")
                 continue
 
-    # ── OpenAI gpt-4o-mini (tout dernier recours — uniquement si Groq+HF+Gemini
-    #    ont tous échoué ; évite de dépendre d'OpenAI en temps normal) ──────────
+    # ── OpenAI gpt-4o-mini (last resort — only if Groq+HF+Gemini
+    #    have all failed; avoids depending on OpenAI in normal operation) ──────
     if os.getenv("OPENAI_API_KEY"):
         try:
             from langchain_openai import ChatOpenAI
@@ -180,24 +180,24 @@ def _call_llm(prompt: str) -> str:
             print(f"[LLM] OpenAI/gpt-4o-mini → {msg[:120]}")
 
     if errors:
-        raise EnvironmentError(f"Tous les LLM ont échoué :\n" + "\n".join(errors))
+        raise EnvironmentError(f"All LLM providers failed:\n" + "\n".join(errors))
 
     raise EnvironmentError(
-        "\n❌ Aucune clé API LLM trouvée dans assistant/.env\n"
-        "Ajouter au moins : GROQ_API_KEY=gsk_...  ou  GOOGLE_API_KEY=AIza...\n"
+        "\n❌ No LLM API key found in assistant/.env\n"
+        "Add at least: GROQ_API_KEY=gsk_...  or  GOOGLE_API_KEY=AIza...\n"
     )
 
 
 def _sanitize_llm_json(raw: str) -> str:
     """
-    Échappe les caractères de contrôle bruts insérés par le LLM à l'intérieur
-    des valeurs de chaînes JSON (\\n \\r \\t littéraux qui cassent json.loads).
+    Escapes raw control characters inserted by the LLM inside
+    JSON string values (literal \\n \\r \\t that break json.loads).
 
     Exemple : "notes_manuscrites": "cinq cent\\nquatre vingt..."
-      → le \\n brut n'est pas une séquence d'échappement JSON → JSONDecodeError.
-    Fix : remplace \\n/\\r/\\t par leurs équivalents JSON \\\\n/\\\\r/\\\\t,
-          supprime les autres caractères de contrôle (<0x20, sauf dans les clés
-          structurelles JSON qui sont déjà hors d'une chaîne).
+      → the raw \\n is not a JSON escape sequence → JSONDecodeError.
+    Fix: replaces \\n/\\r/\\t with their JSON equivalents \\\\n/\\\\r/\\\\t,
+          and removes other control characters (<0x20, except in the structural
+          JSON characters that are already outside a string).
     """
     result: list[str] = []
     in_string = False
@@ -230,14 +230,14 @@ def _sanitize_llm_json(raw: str) -> str:
 
 def _repair_truncated_json(text: str) -> str:
     """
-    Répare un JSON tronqué (réponse LLM coupée à max_tokens).
-    Ferme les chaînes, listes et objets ouverts.
+    Repairs a truncated JSON (LLM answer cut at max_tokens).
+    Closes open strings, lists and objects.
     """
     text = text.rstrip().rstrip(',')
 
     in_string = False
     escape_next = False
-    stack = []  # '{' ou '['
+    stack = []  # '{' or '['
 
     for ch in text:
         if escape_next:
@@ -256,11 +256,11 @@ def _repair_truncated_json(text: str) -> str:
             elif ch == ']' and stack and stack[-1] == '[':
                 stack.pop()
 
-    # Ferme la chaîne ouverte si besoin
+    # Close the open string if needed
     if in_string:
         text += '"'
 
-    # Ferme les structures dans l'ordre inverse
+    # Close the structures in reverse order
     for opener in reversed(stack):
         text += '}' if opener == '{' else ']'
 
@@ -271,10 +271,10 @@ def _repair_truncated_json(text: str) -> str:
 
 def _call_ocr_space(file_path: str) -> str:
     """
-    Envoie un fichier image ou PDF à l'API OCR.space et retourne le texte extrait.
-    Langue : français + anglais (les documents tunisiens mixent les deux).
+    Sends an image or PDF file to the OCR.space API and returns the extracted text.
+    Language: French + English (Tunisian documents mix both).
     """
-    api_key = os.getenv("OCR_SPACE_API_KEY", "helloworld")  # 'helloworld' = clé test limitée
+    api_key = os.getenv("OCR_SPACE_API_KEY", "helloworld")  # 'helloworld' = public, rate-limited test key
 
     suffix = Path(file_path).suffix.lower()
     filetype_map = {
@@ -294,9 +294,9 @@ def _call_ocr_space(file_path: str) -> str:
                     "apikey": api_key,
                     "language": "fre",
                     "isOverlayRequired": False,
-                    "OCREngine": 2,       # moteur plus précis
+                    "OCREngine": 2,       # more accurate engine
                     "scale": True,
-                    "isTable": True,      # préserve la structure des tableaux
+                    "isTable": True,      # keeps the table structure
                     "detectOrientation": True,
                 },
                 timeout=60,
@@ -318,7 +318,7 @@ def _call_ocr_space(file_path: str) -> str:
         return "\n\n".join(pages_text).strip()
 
     except requests.exceptions.Timeout:
-        return "Erreur OCR.space : timeout (fichier trop lourd ou API lente)"
+        return "OCR.space error: timeout (file too large or slow API)"
     except Exception as e:
         return f"Erreur OCR.space : {str(e)}"
 
@@ -326,7 +326,7 @@ def _call_ocr_space(file_path: str) -> str:
 def _call_vision_model_fallback(image_base64: str, mime: str, prompt: str) -> str:
     """
     Fallback OCR vision : Groq llama-4-scout → Gemini 2.0-flash / 1.5-flash / 1.5-pro.
-    Utilisé seulement si OCR_SPACE_API_KEY est absent ou en erreur.
+    Used only when OCR_SPACE_API_KEY is missing or fails.
     """
     errors: list[str] = []
 
@@ -374,9 +374,9 @@ def _call_vision_model_fallback(image_base64: str, mime: str, prompt: str) -> st
                 continue
 
     raise EnvironmentError(
-        "Aucun modèle vision disponible :\n" + "\n".join(errors)
+        "No vision model available:\n" + "\n".join(errors)
         if errors else
-        "Aucune clé API vision. Ajoutez GOOGLE_API_KEY dans assistant/.env"
+        "No vision API key. Add GOOGLE_API_KEY to assistant/.env"
     )
 
 
@@ -385,9 +385,9 @@ def _call_vision_model_fallback(image_base64: str, mime: str, prompt: str) -> st
 @tool
 def detect_file_type(file_path: str) -> dict:
     """
-    Détecte automatiquement le type du fichier reçu :
+    Automatically detects the type of the received file:
       - "pdf_native"  : PDF avec couche texte exploitable (pdfplumber)
-      - "pdf_scanned" : PDF scanné (images uniquement, OCR requis)
+      - "pdf_scanned" : scanned PDF (images only, OCR required)
       - "image"       : fichier image direct (JPG, PNG, TIFF, BMP, WEBP)
 
     Retourne :
@@ -430,10 +430,10 @@ def detect_file_type(file_path: str) -> dict:
 @tool
 def extract_text_pdf_native(file_path: str) -> str:
     """
-    Extrait le texte complet d'un PDF natif (avec couche texte) via pdfplumber.
-    Préserve la structure des tableaux (articles, montants, etc.).
+    Extracts the full text of a native PDF (with a text layer) with pdfplumber.
+    Keeps the table structure (items, amounts, etc.).
 
-    Retourne le texte brut de toutes les pages, formaté avec les tableaux.
+    Returns the raw text of all pages, with the tables formatted.
     """
     import pdfplumber
 
@@ -470,24 +470,24 @@ def extract_text_pdf_native(file_path: str) -> str:
 @tool
 def extract_text_vision(image_path: str) -> str:
     """
-    Extrait le texte d'une image ou d'un PDF scanné.
-    Méthode principale : OCR.space (API REST, gratuite).
+    Extracts the text of an image or a scanned PDF.
+    Main method: OCR.space (free REST API).
     Fallback : Gemini vision ou Groq vision.
 
-    Gère : français, chiffres, tampons, signatures, mentions manuscrites.
-    Retourne le texte brut extrait.
+    Handles: French, digits, stamps, signatures, handwritten notes.
+    Returns the extracted raw text.
     """
-    # ── Méthode principale : OCR.space ──
+    # ── Main method: OCR.space ──
     if os.getenv("OCR_SPACE_API_KEY") or True:  # tente toujours OCR.space en premier
         result = _call_ocr_space(image_path)
-        # Si OCR.space retourne du texte valide (pas une erreur), on le renvoie
+        # If OCR.space returns valid text (not an error), return it
         if result and not result.startswith("Erreur OCR.space"):
             return result
-        # Si erreur OCR.space et pas de clé personnelle → fallback vision LLM
+        # On an OCR.space error without a personal key → vision LLM fallback
         if not os.getenv("OCR_SPACE_API_KEY"):
-            return result  # retourne l'erreur si pas de clé du tout
+            return result  # returns the error when no key is available at all
 
-    # ── Fallback : modèle vision LLM ──
+    # ── Fallback: vision LLM ──
     ocr_prompt = (
         "Tu es un expert OCR spécialisé dans les documents commerciaux tunisiens. "
         "Extrais TOUT le texte visible dans cette image, y compris : "
@@ -523,7 +523,7 @@ def extract_text_vision(image_path: str) -> str:
 
             return all_text.strip()
         except Exception as e:
-            return f"Erreur conversion PDF scanné : {str(e)}"
+            return f"Scanned PDF conversion error: {str(e)}"
 
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
@@ -535,8 +535,8 @@ def extract_text_vision(image_path: str) -> str:
 
 def _call_vision_llm(image_path: str, prompt: str) -> str:
     """
-    Chaîne vision : HuggingFace Qwen2-VL → Gemini 2.0-flash / 1.5-flash / 1.5-pro
-    HF est skipé si 402 (payant) ou 429 (quota).
+    Vision chain: HuggingFace Qwen2-VL → Gemini 2.0-flash / 1.5-flash / 1.5-pro
+    HF is skipped on HTTP 402 (paid) or 429 (quota).
     """
     mime_map = {
         ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png",
@@ -550,7 +550,7 @@ def _call_vision_llm(image_path: str, prompt: str) -> str:
 
     errors: list[str] = []
 
-    # ── HuggingFace vision (rotation compte 1 → compte 2 si 402/429) ─────────
+    # ── HuggingFace vision (account 1 → account 2 rotation on 402/429) ──────────
     _hf_tokens = [t for t in [os.getenv("HF_API_KEY"), os.getenv("HF_API_KEY_2")] if t]
     for _idx, _hf_token in enumerate(_hf_tokens, 1):
         try:
@@ -597,14 +597,14 @@ def _call_vision_llm(image_path: str, prompt: str) -> str:
                 continue
 
     raise EnvironmentError(
-        "Aucun modèle vision disponible :\n" + "\n".join(errors)
+        "No vision model available:\n" + "\n".join(errors)
         if errors else
-        "Aucune clé API vision trouvée. Ajoutez GOOGLE_API_KEY dans assistant/.env"
+        "No vision API key found. Add GOOGLE_API_KEY to assistant/.env"
     )
 
 
 def _build_extraction_prompt(document_type: str, base_entities: dict) -> str:
-    """Construit le prompt d'extraction complet pour le modèle vision."""
+    """Builds the full extraction prompt for the vision model."""
     base_keys = list(base_entities.keys()) if base_entities else []
     mode_auto = document_type in ("auto", "") or not base_keys
 
@@ -749,16 +749,16 @@ def extract_entities_from_image(
     base_entities_json: str,
 ) -> str:
     """
-    Extrait directement les entités structurées depuis une image de document commercial.
-    Utilise Qwen2-VL-7B qui VOIT visuellement les colonnes du tableau.
-    → Résout la confusion de colonnes des tableaux à layouts variés.
+    Extracts structured entities directly from an image of a business document.
+    Uses Qwen2-VL-7B, which SEES the table columns visually.
+    → Solves column confusion in tables with varied layouts.
 
-    Paramètres :
+    Parameters:
       image_path         : chemin vers l'image (JPG, PNG, TIFF, WEBP)
       document_type      : "facture" | "lettre_de_change" | "auto"
-      base_entities_json : JSON des entités déjà extraites (peut être "{}")
+      base_entities_json : JSON of the entities already extracted (may be "{}")
 
-    Retourne un JSON string des entités extraites directement depuis l'image.
+    Returns a JSON string of the entities extracted directly from the image.
     """
     try:
         base = json.loads(base_entities_json) if base_entities_json else {}
@@ -767,7 +767,7 @@ def extract_entities_from_image(
 
     prompt = _build_extraction_prompt(document_type, base)
 
-    # PDF scanné : convertir chaque page en image
+    # Scanned PDF: convert each page to an image
     suffix = Path(image_path).suffix.lower()
     if suffix == ".pdf":
         try:
@@ -786,14 +786,14 @@ def extract_entities_from_image(
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
 
-            # Pour un PDF multi-pages : retourne la première page (page principale)
+            # Multi-page PDF: return the first page (main page)
             content = all_results[0] if all_results else "{}"
         except Exception as e:
             return json.dumps({"error": f"Erreur conversion PDF : {str(e)}"}, ensure_ascii=False)
     else:
         content = _call_vision_llm(image_path, prompt)
 
-    # Nettoyage et parsing JSON
+    # JSON cleaning and parsing
     content = content.strip()
     if "```json" in content:
         content = content.split("```json")[1].split("```")[0].strip()
@@ -822,15 +822,15 @@ def extract_entities_from_image(
 def extract_visual_fields(image_path: str, document_type: str = "auto") -> str:
     """
     Analyse visuelle directe via Gemini Vision (Section II — Gouvernance).
-    Détecte les éléments que l'OCR texte ne peut pas capturer :
+    Detects the elements that text OCR cannot capture:
       - Tampons / cachets humides (ronds, ovales, rectangulaires)
-      - Signatures manuscrites (du tiré, du tireur, du fournisseur)
-      - Annotations et notes manuscrites (texte griffonné à la main)
-      - État du document (original, duplicata, copie, endommagé)
-      - Présence et lisibilité du logo de l'entreprise
-      - Aval bancaire (case cochée ou tampon dans la zone Aval)
+      - Handwritten signatures (drawee, drawer, supplier)
+      - Handwritten annotations and notes
+      - Document condition (original, duplicate, copy, damaged)
+      - Presence and readability of the company logo
+      - Bank guarantee (ticked box or stamp in the guarantee area)
 
-    Retourne un JSON string avec uniquement les champs visuels.
+    Returns a JSON string with the visual fields only.
     """
     is_traite = "lettre" in document_type.lower() or "change" in document_type.lower()
 
@@ -958,11 +958,11 @@ Retourne UNIQUEMENT ce JSON (sans markdown, sans explication) :
 
 JSON :"""
 
-    # ── Appel Vision (Groq llama-4-scout en priorité, Gemini en fallback) ───────
+    # ── Vision call (Groq llama-4-scout first, Gemini as fallback) ───────────────
     api_key = os.getenv("GOOGLE_API_KEY")  # Gemini (optionnel)
 
     if not os.getenv("GROQ_API_KEY") and not api_key:
-        return json.dumps({"error": "Aucune clé API vision (GROQ_API_KEY ou GOOGLE_API_KEY)"}, ensure_ascii=False)
+        return json.dumps({"error": "No vision API key (GROQ_API_KEY or GOOGLE_API_KEY)"}, ensure_ascii=False)
 
     content = ""
     last_error = ""
@@ -973,11 +973,11 @@ JSON :"""
 
         ext = Path(image_path).suffix.lower()
 
-        # PDF (natif ou scanné) : extract_visual_fields n'a aucun lecteur PDF natif —
-        # on convertit la 1ère page en PNG, comme extract_text_vision() le fait déjà.
-        # Limite connue : pour un PDF multi-pages, seule la page 1 est analysée
-        # visuellement (signatures/cachets/articles habituellement sur la 1ère page
-        # pour les factures/lettres de change tunisiennes, qui sont en général
+        # PDF (native or scanned): extract_visual_fields has no native PDF reader —
+        # the first page is converted to PNG, as extract_text_vision() already does.
+        # Known limitation: for a multi-page PDF only page 1 is analysed
+        # visually (signatures/stamps/items are usually on the first page
+        # of Tunisian invoices and bills of exchange, which are usually
         # mono-page).
         if ext == ".pdf":
             from pdf2image import convert_from_path
@@ -1003,7 +1003,7 @@ JSON :"""
 
         image_url_data = f"data:{mime_type};base64,{image_b64}"
 
-        # ── 1. Groq Vision (llama-4-scout — multimodal, clé déjà fonctionnelle) ──
+        # ── 1. Groq Vision (llama-4-scout — multimodal) ──
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key:
             try:
@@ -1022,7 +1022,7 @@ JSON :"""
                     temperature=0,
                 )
                 content = resp.choices[0].message.content.strip()
-                print(f"[VISUAL] Modèle utilisé : llama-4-scout (Groq)")
+                print(f"[VISUAL] Model used: llama-4-scout (Groq)")
             except Exception as e:
                 last_error = str(e)
                 print(f"[VISUAL] Groq vision → {last_error[:150]}")
@@ -1042,7 +1042,7 @@ JSON :"""
                         {"type": "image_url", "image_url": {"url": image_url_data}},
                     ])
                     content = llm.invoke([msg]).content.strip()
-                    print(f"[VISUAL] Modèle utilisé : {model_name} (Gemini fallback)")
+                    print(f"[VISUAL] Model used: {model_name} (Gemini fallback)")
                     break
                 except Exception as e:
                     last_error = str(e)
@@ -1050,7 +1050,7 @@ JSON :"""
                     continue
 
         if not content:
-            return json.dumps({"error": f"Aucun modèle vision disponible : {last_error[:200]}"}, ensure_ascii=False)
+            return json.dumps({"error": f"No vision model available: {last_error[:200]}"}, ensure_ascii=False)
 
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
@@ -1059,7 +1059,7 @@ JSON :"""
 
         content = _sanitize_llm_json(content)
         parsed = json.loads(content)
-        print(f"[VISUAL] Champs visuels détectés : {parsed}")
+        print(f"[VISUAL] Visual fields detected: {parsed}")
         return json.dumps(parsed, ensure_ascii=False, indent=2)
 
     except json.JSONDecodeError as e:
@@ -1080,18 +1080,18 @@ def extract_augmented_entities(
     document_type: str,
 ) -> str:
     """
-    Extrait les entités supplémentaires (augmentation) non capturées par le modèle fine-tuné.
+    Extracts additional entities (augmentation) not captured by the fine-tuned model.
     Utilise Mistral AI (gratuit) pour l'extraction intelligente.
 
-    Paramètres :
-      raw_text           : texte brut extrait par les outils 2 ou 3
-      base_entities_json : JSON (string) des entités déjà extraites par le fine-tuné
+    Parameters:
+      raw_text           : raw text extracted by tools 2 or 3
+      base_entities_json : JSON (string) of the entities already extracted by the fine-tuned model
       document_type      : "facture" | "lettre_de_change" | "auto"
 
-    Retourne un JSON string des entités augmentées uniquement
-    (ne répète pas ce qui est déjà dans base_entities_json).
+    Returns a JSON string of the augmented entities only
+    (does not repeat what is already in base_entities_json).
 
-    ── Pour une FACTURE, extrait :
+    ── For an INVOICE, extracts:
        articles, montant_ht, tva_rate, montant_tva, timbre_fiscal,
        date_echeance, mode_paiement, reference_bancaire,
        email_fournisseur, email_client, telephone_fournisseur, telephone_client,
@@ -1101,7 +1101,7 @@ def extract_augmented_entities(
        remarques_manuscrites, mentions_legales,
        reference_commande, bon_livraison
 
-    ── Pour une LETTRE DE CHANGE, extrait :
+    ── For a BILL OF EXCHANGE, extracts:
        date_creation, lieu_paiement, lieu_creation,
        banque_domiciliataire, rib_tire,
        endossements, aval_bancaire, aval_details,
@@ -1121,10 +1121,10 @@ def extract_augmented_entities(
     doc_upper = (document_type or "auto").upper()
     mode_auto = doc_upper in ("AUTO", "") or not base_keys
 
-    # ── Schémas JSON des deux types de documents ─────────────────────────────
-    # Le GLM principal extrait déjà : fournisseur nom, client nom, date, numéro,
-    # montant TTC (factures) ; tiré, tireur, montant, RIB, domiciliation (traites).
-    # L'agent extrait TOUT LE RESTE — organisé en 3 sections.
+    # ── JSON schemas of the two document types ───────────────────────────────
+    # The main GLM model already extracts: supplier name, client name, date, number,
+    # total amount incl. VAT (invoices); drawee, drawer, amount, RIB, bank (bills).
+    # The agent extracts EVERYTHING ELSE — organised in 3 sections.
 
     schema_facture = """{
   "_document_type": "facture",
@@ -1206,7 +1206,7 @@ def extract_augmented_entities(
   "mode_reglement"        : null
 }"""
 
-    # ── Construction du contexte ──────────────────────────────────────────────
+    # ── Context building ──────────────────────────────────────────────────────
     if mode_auto:
         type_instruction = """ÉTAPE 1 — TYPE DE DOCUMENT
 Identifie le type en cherchant ces mots-clés exacts :
@@ -1221,8 +1221,8 @@ Identifie le type en cherchant ces mots-clés exacts :
         type_instruction = 'Type confirmé : "lettre_de_change".\n'
         schema_a_utiliser = schema_lettre
 
-    # Valeur numérique du montant déjà extraite par le modèle principal (pour cross-check
-    # avec le montant manuscrit en lettres — voir RÈGLE 6 plus bas)
+    # Numeric amount already extracted by the main model (cross-checked
+    # with the handwritten amount in words — see RULE 6 below)
     montant_connu = (
         base.get("MONTANT") or base.get("montant")
         or base.get("MONTANT_TTC") or base.get("montant_ttc")
@@ -1489,12 +1489,12 @@ JSON :"""
 
         content = _sanitize_llm_json(content)
 
-        # Tente le parsing direct
+        # Try direct parsing
         try:
             parsed = json.loads(content)
             return json.dumps(parsed, ensure_ascii=False, indent=2)
         except json.JSONDecodeError:
-            # Réparation automatique si JSON tronqué (réponse trop longue)
+            # Automatic repair when the JSON is truncated (answer too long)
             repaired = _repair_truncated_json(content)
             parsed = json.loads(repaired)
             return json.dumps(parsed, ensure_ascii=False, indent=2)

@@ -4,16 +4,16 @@ main.py — Backend FastAPI  |  GLM-OCR (vision-language model)
 
 Route principale :
     POST /predict
-        - Reçoit une image (multipart/form-data)
-        - Pipeline : image → GLM-OCR → JSON structuré
-        - Retourne les entités extraites de la facture
+        - Receives an image (multipart/form-data)
+        - Pipeline: image → GLM-OCR → structured JSON
+        - Returns the entities extracted from the invoice
 
 Routes utilitaires :
-    GET  /health   → statut + modèle chargé
-    GET  /labels   → liste des entités supportées
+    GET  /health   → status + loaded model
+    GET  /labels   → list of supported entities
 
-Modèle : zai-org/GLM-OCR fine-tuné sur factures tunisiennes (LoRA mergé)
-Singleton : modèle chargé une seule fois au démarrage (lifespan FastAPI)
+Model: zai-org/GLM-OCR fine-tuned on invoices (LoRA merged)
+Singleton: the model is loaded once at start-up (FastAPI lifespan)
 """
 
 import gc
@@ -42,17 +42,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backend")
 
-# ── Config modèle ─────────────────────────────────────────────────────────────
-# HF_MODEL_REPO : repo HF Hub contenant le modèle GLM mergé
-# LOCAL_MODEL   : chemin local optionnel (backend/model/glm_model/)
+# ── Model configuration ───────────────────────────────────────────────────────
+# HF_MODEL_REPO: Hugging Face Hub repository holding the merged GLM model
+# LOCAL_MODEL   : optional local path (backend/model/glm_model/)
 HF_MODEL_REPO = os.getenv("HF_MODEL_REPO", "Goubaa/glmocr-factures")
 _local_model  = Path(__file__).parent / "model" / "glm_model"
 MODEL_SOURCE  = str(_local_model) if _local_model.exists() else HF_MODEL_REPO
 
-# Entités extraites par le modèle
+# Entities extracted by the model
 ENTITIES = ["CLIENT", "FOURNISSEUR", "DATE_FACTURE", "MONTANT_TTC", "NUMERO_FACTURE"]
 
-# Prompt d'extraction (identique à l'entraînement)
+# Extraction prompt (identical to the one used for training)
 PROMPT = (
     "Extrais les informations suivantes de cette facture en JSON :\n"
     "- CLIENT : nom du client\n"
@@ -65,7 +65,7 @@ PROMPT = (
 )
 
 MAX_NEW_TOKENS = 256
-MAX_IMAGE_SIZE = 1024  # pixels (côté max)
+MAX_IMAGE_SIZE = 1024  # pixels (longest side)
 
 # ── Singletons ────────────────────────────────────────────────────────────────
 _processor:    Optional[AutoProcessor]                = None
@@ -75,11 +75,11 @@ _device:       str  = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Chargement du modèle
+# Model loading
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fix_filenames(model_dir: Path) -> None:
-    """Renomme les fichiers 'name (N).ext' → 'name.ext' (artefact Windows)."""
+    """Renames 'name (N).ext' files to 'name.ext' (Windows download artefact)."""
     pattern = re.compile(r'^(.+?) \(\d+\)(\..+)$')
     for f in model_dir.iterdir():
         m = pattern.match(f.name)
@@ -92,28 +92,28 @@ def _fix_filenames(model_dir: Path) -> None:
 
 
 def load_models() -> None:
-    """Charge le processor et le modèle GLM-OCR mergé. Appelé une seule fois."""
+    """Loads the processor and the merged GLM-OCR model. Called once."""
     global _processor, _model, _models_ready
 
-    logger.info("=== Chargement GLM-OCR depuis : %s (device=%s) ===", MODEL_SOURCE, _device)
+    logger.info("=== Loading GLM-OCR from: %s (device=%s) ===", MODEL_SOURCE, _device)
     t0 = time.time()
 
     source = MODEL_SOURCE
 
-    # Corriger les noms de fichiers si chargement local
+    # Fix the file names when loading from a local folder
     if Path(source).exists():
         _fix_filenames(Path(source))
 
     # ── Processor ─────────────────────────────────────────────────────────────
-    logger.info("Chargement processor...")
+    logger.info("Loading the processor...")
     _processor = AutoProcessor.from_pretrained(
         source,
         use_fast=False,
         trust_remote_code=True,
     )
 
-    # ── Modèle ────────────────────────────────────────────────────────────────
-    logger.info("Chargement modèle GLM-OCR...")
+    # ── Model ─────────────────────────────────────────────────────────────────
+    logger.info("Loading the GLM-OCR model...")
     _model = AutoModelForImageTextToText.from_pretrained(
         source,
         torch_dtype=torch.float16 if _device == "cuda" else torch.float32,
@@ -127,7 +127,7 @@ def load_models() -> None:
     _model.eval()
 
     _models_ready = True
-    logger.info("=== Modèle GLM-OCR prêt en %.1f s ===", time.time() - t0)
+    logger.info("=== GLM-OCR model ready in %.1f s ===", time.time() - t0)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
     gc.collect()
     if _device == "cuda":
         torch.cuda.empty_cache()
-    logger.info("Modèle libéré.")
+    logger.info("Model released.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="GLM-OCR Backend",
-    description="Pipeline : image facture → GLM-OCR → JSON structuré",
+    description="Pipeline: invoice image → GLM-OCR → structured JSON",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -167,11 +167,11 @@ app.add_middleware(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline d'inférence GLM-OCR
+# GLM-OCR inference pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
 def resize_image(image: Image.Image, max_size: int = MAX_IMAGE_SIZE) -> Image.Image:
-    """Redimensionne l'image si elle dépasse max_size pixels (côté max)."""
+    """Resizes the image if it exceeds max_size pixels (longest side)."""
     w, h = image.size
     if max(w, h) <= max_size:
         return image
@@ -181,8 +181,8 @@ def resize_image(image: Image.Image, max_size: int = MAX_IMAGE_SIZE) -> Image.Im
 
 def parse_glm_output(raw_text: str) -> dict:
     """
-    Extrait le JSON de la sortie brute du modèle.
-    Gère les cas où le modèle ajoute du texte autour du JSON.
+    Extracts the JSON from the raw model output.
+    Handles cases where the model adds text around the JSON.
     """
     # Chercher un bloc JSON entre accolades
     match = re.search(r'\{[^{}]*\}', raw_text, re.DOTALL)
@@ -192,30 +192,30 @@ def parse_glm_output(raw_text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Fallback : essayer de parser directement
+    # Fallback: try to parse directly
     try:
         return json.loads(raw_text.strip())
     except json.JSONDecodeError:
         pass
 
-    # Dernier recours : retourner N/A pour tout
-    logger.warning("Impossible de parser la sortie GLM : %s", raw_text[:200])
+    # Last resort: return N/A for every field
+    logger.warning("Cannot parse the GLM output: %s", raw_text[:200])
     return {e: "N/A" for e in ENTITIES}
 
 
 def run_glm(pil_image: Image.Image) -> tuple[dict, str]:
     """
-    Exécute GLM-OCR sur une image PIL.
+    Runs GLM-OCR on a PIL image.
 
     Returns:
         (parsed_dict, raw_text) :
             parsed_dict : {CLIENT: ..., FOURNISSEUR: ..., ...}
-            raw_text    : sortie brute du modèle
+            raw_text    : raw model output
     """
     image = pil_image.convert("RGB")
     image = resize_image(image)
 
-    # Construire le message avec le template de chat GLM
+    # Build the message with the GLM chat template
     messages = [
         {
             "role": "user",
@@ -245,7 +245,7 @@ def run_glm(pil_image: Image.Image) -> tuple[dict, str]:
             do_sample=False,
         )
 
-    # Décoder seulement les tokens générés (pas le prompt)
+    # Decode only the generated tokens (not the prompt)
     input_len = inputs["input_ids"].shape[1]
     raw_text = _processor.decode(
         output_ids[0][input_len:],
@@ -258,7 +258,7 @@ def run_glm(pil_image: Image.Image) -> tuple[dict, str]:
 
 def build_entities(parsed: dict) -> list:
     """
-    Convertit le dict parsé en liste d'entités compatible avec le frontend.
+    Converts the parsed dict into a list of entities compatible with the frontend.
     Format : [{"label": str, "text": str, "box": null}]
     """
     entities = []
@@ -268,7 +268,7 @@ def build_entities(parsed: dict) -> list:
             entities.append({
                 "label": label,
                 "text":  str(value),
-                "box":   None,   # GLM ne fournit pas de coordonnées spatiales
+                "box":   None,   # GLM does not return spatial coordinates
                 "words": [],
             })
     return entities
@@ -297,21 +297,21 @@ async def get_labels():
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     """
-    Pipeline GLM-OCR : image → JSON structuré.
+    GLM-OCR pipeline: image → structured JSON.
 
     Retour :
     {
         "entities": [{"label": str, "text": str, "box": null, "words": []}],
-        "full_text": str,    ← sortie brute du modèle
+        "full_text": str,    ← raw model output
         "timing": {"inference_ms": int, "total_ms": int}
     }
     """
     if not _models_ready:
-        raise HTTPException(503, "Modèle en cours de chargement, réessayez dans quelques secondes")
+        raise HTTPException(503, "Model is loading, try again in a few seconds")
 
     ext = Path(file.filename or "img.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}:
-        raise HTTPException(400, f"Format non supporté : {ext}")
+        raise HTTPException(400, f"Unsupported format: {ext}")
 
     img_bytes = await file.read()
     t_start   = time.time()
@@ -322,14 +322,14 @@ async def predict(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(422, f"Image invalide : {e}")
 
-    # ── Inférence GLM-OCR ─────────────────────────────────────────────────────
+    # ── GLM-OCR inference ─────────────────────────────────────────────────────
     try:
         t0 = time.time()
         parsed, raw_text = run_glm(pil_image)
         ms_inference = int((time.time() - t0) * 1000)
     except Exception as e:
-        logger.error("Erreur inférence GLM : %s", e)
-        raise HTTPException(500, f"Erreur inférence : {e}")
+        logger.error("GLM inference error: %s", e)
+        raise HTTPException(500, f"Inference error: {e}")
 
     entities = build_entities(parsed)
     ms_total = int((time.time() - t_start) * 1000)
@@ -349,7 +349,7 @@ async def predict(file: UploadFile = File(...)):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Point d'entrée local
+# Local entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

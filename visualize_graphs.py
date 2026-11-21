@@ -1,6 +1,6 @@
 """
-Génère et ouvre les diagrammes PNG des 4 graphes LangGraph.
-Utilise mermaid.ink (requiert internet) pour le rendu.
+Generates and opens the PNG diagrams of the 4 LangGraph graphs.
+Uses mermaid.ink (requires an internet connection) for rendering.
 """
 import os
 import sys
@@ -13,7 +13,7 @@ OUT_DIR = os.path.join(ROOT, "graphs_output")
 sys.path.insert(0, ASSISTANT)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# Charger les variables .env manuellement (sans python-dotenv requis)
+# Load the .env variables manually (python-dotenv not required)
 env_path = os.path.join(ASSISTANT, ".env")
 if os.path.exists(env_path):
     with open(env_path, encoding="utf-8") as f:
@@ -24,14 +24,14 @@ if os.path.exists(env_path):
                 os.environ.setdefault(k.strip(), v.strip())
 
 GRAPHS = [
-    ("1_Extracteur",  "agents.extractor.graph", "build_extractor_graph"),
-    ("2_Auditeur",    "agents.auditor.graph",   "build_auditor_graph"),
-    ("3_Analyste",    "agents.analyst.graph",   "build_analyst_graph"),
-    ("4_Chatbot",     "agents.chatbot.graph",   "build_chatbot_graph"),
+    ("1_extractor",  "agents.extractor.graph", "build_extractor_graph"),
+    ("2_auditor",    "agents.auditor.graph",   "build_auditor_graph"),
+    ("3_analyst",    "agents.analyst.graph",   "build_analyst_graph"),
+    ("4_chatbot",     "agents.chatbot.graph",   "build_chatbot_graph"),
 ]
 
 print("=" * 55)
-print("  Visualisation des graphes LangGraph — OCR PFE GLM")
+print("  LangGraph graph rendering — OCR PFE GLM")
 print("=" * 55)
 
 files_opened = []
@@ -45,7 +45,7 @@ for name, module_path, fn_name in GRAPHS:
         g = build_fn()
         print(" OK", flush=True)
     except Exception as e:
-        print(f" ERREUR import : {e}")
+        print(f" Import ERROR: {e}")
         continue
 
     png_path = os.path.join(OUT_DIR, f"{name}.png")
@@ -57,28 +57,28 @@ for name, module_path, fn_name in GRAPHS:
         print(f" {len(png_data)//1024} KB  →  {png_path}")
         files_opened.append(png_path)
     except Exception as e:
-        print(f" ERREUR rendu : {e}")
-        # Fallback ASCII dans le terminal
+        print(f" Rendering ERROR: {e}")
+        # ASCII fallback in the terminal
         try:
             ascii_art = g.get_graph().draw_ascii()
             txt_path = os.path.join(OUT_DIR, f"{name}.txt")
             with open(txt_path, "w", encoding="utf-8") as f:
                 f.write(ascii_art)
-            print(f"  → ASCII sauvegardé : {txt_path}")
+            print(f"  → ASCII saved: {txt_path}")
             files_opened.append(txt_path)
         except Exception as e2:
-            print(f"  → ASCII aussi échoué : {e2}")
+            print(f"  → ASCII also failed: {e2}")
 
 print("\n" + "=" * 55)
 if files_opened:
-    print(f"  {len(files_opened)} fichier(s) généré(s) — ouverture...")
+    print(f"  {len(files_opened)} file(s) generated — opening...")
     print("=" * 55)
     for path in files_opened:
         os.startfile(path)
         time.sleep(0.4)
 else:
-    print("  Aucun fichier généré.")
+    print("  No file generated.")
     print("=" * 55)
 
-print("\nDossier de sortie :", OUT_DIR)
-input("\nAppuyez sur Entrée pour fermer...")
+print("\nOutput folder:", OUT_DIR)
+input("\nPress Enter to close...")

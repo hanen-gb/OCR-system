@@ -1,12 +1,12 @@
 """
 Sous-graphe LangGraph — Agent 3 : L'Analyste
 
-Flux séquentiel :
+Sequential flow:
     START → load_history       ← PostgreSQL : 500 derniers documents
               ↓
            compute_stats   ← Stats historiques (fournisseur + global)
               ↓
-         detect_anomalies  ← Montant déviant, nouveau fournisseur, montant élevé
+         detect_anomalies  ← deviating amount, new supplier, high amount
               ↓
          generate_insights ← LLM : commentaire analytique 3-4 phrases
               ↓
@@ -39,7 +39,7 @@ def _is_traite(audit: dict, entities: dict) -> bool:
 
 def _resolve_fournisseur(audit: dict, entities: dict) -> str | None:
     if _is_traite(audit, entities):
-        # Pour une traite, l'acteur principal est le Tireur
+        # For a bill of exchange, the main party is the drawer
         f = (audit.get("fournisseur") or
              entities.get("TIREUR") or entities.get("tireur"))
     else:
@@ -56,9 +56,9 @@ def _resolve_montant(audit: dict, entities: dict) -> float | None:
             if v is not None:
                 try:
                     if isinstance(v, str):
-                        # \s couvre l'espace ASCII, l'espace insécable ( ) et
-                        # l'espace fine insécable ( ) que les LLM utilisent comme
-                        # séparateur de milliers (ex: "2 000.000" avec  ).
+                        # \s covers the ASCII space, the no-break space ( ) and
+                        # the narrow no-break space ( ) that LLMs use as a
+                        # thousands separator (e.g. "2 000.000" with  ).
                         v = re.sub(r"\s", "", v.strip())
                         if "," in v and "." not in v:
                             v = v.replace(",", ".")
@@ -73,14 +73,14 @@ def _resolve_montant(audit: dict, entities: dict) -> float | None:
 # ── Nœuds ─────────────────────────────────────────────────────────────────────
 
 def load_history_node(state: AnalystState) -> dict:
-    """Charge les 500 derniers documents depuis PostgreSQL."""
+    """Loads the 500 most recent documents from PostgreSQL."""
     historique = get_documents_pg(limit=500)
-    print(f"[ANALYSTE] Historique chargé : {len(historique)} documents")
+    print(f"[ANALYST] History loaded: {len(historique)} documents")
     return {"historique": historique}
 
 
 def compute_stats_node(state: AnalystState) -> dict:
-    """Calcule les statistiques par fournisseur et globales."""
+    """Computes supplier and overall statistics."""
     historique  = state.get("historique") or []
     audit       = state.get("audit_report") or {}
     entities    = state.get("complete_entities") or {}
@@ -98,7 +98,7 @@ def compute_stats_node(state: AnalystState) -> dict:
 
 
 def detect_anomalies_node(state: AnalystState) -> dict:
-    """Détecte les anomalies du document courant."""
+    """Detects the anomalies of the current document."""
     audit    = state.get("audit_report") or {}
     entities = state.get("complete_entities") or {}
 
@@ -120,10 +120,10 @@ def detect_anomalies_node(state: AnalystState) -> dict:
 
 def _call_llm_analyst(prompt: str) -> str:
     """
-    Chaîne LLM dédiée à l'Agent 3 : OpenAI gpt-4o-mini en premier (clé OPENAI_API_KEY),
-    puis repli sur la chaîne standard de l'Extracteur (Groq → HF → Gemini) si OpenAI
-    est indisponible ou échoue. L'Extracteur (Agent 1), lui, continue d'utiliser
-    uniquement des modèles gratuits/peu coûteux via _call_llm() — jamais OpenAI.
+    LLM chain dedicated to Agent 3: OpenAI gpt-4o-mini first (OPENAI_API_KEY),
+    then the standard Extractor chain (Groq → HF → Gemini) when OpenAI
+    is unavailable or fails. The Extractor (Agent 1) keeps using
+    only free/low-cost models through _call_llm() — never OpenAI.
     """
     if os.getenv("OPENAI_API_KEY"):
         try:
@@ -138,14 +138,14 @@ def _call_llm_analyst(prompt: str) -> str:
             print("[LLM] OpenAI/gpt-4o-mini ✓")
             return result
         except Exception as e:
-            print(f"[LLM] OpenAI échec ({str(e)[:120]}) — bascule sur Groq/HF/Gemini")
+            print(f"[LLM] OpenAI failed ({str(e)[:120]}) — switching to Groq/HF/Gemini")
 
     from agents.extractor.tools import _call_llm
     return _call_llm(prompt)
 
 
 def generate_insights_node(state: AnalystState) -> dict:
-    """Génère un commentaire analytique via LLM (OpenAI → Groq → HF → Gemini)."""
+    """Generates an analytical comment with an LLM (OpenAI → Groq → HF → Gemini)."""
     audit     = state.get("audit_report") or {}
     anomalies = state.get("anomalies") or []
     stats_f   = state.get("stats_fournisseur") or {}
@@ -234,7 +234,7 @@ Commentaire en français :"""
 
 
 def verdict_node(state: AnalystState) -> dict:
-    """Compile le rapport final et détermine le niveau d'alerte global."""
+    """Compiles the final report and sets the overall alert level."""
     anomalies = state.get("anomalies") or []
 
     if any(a.get("niveau") == "ALERTE" for a in anomalies):

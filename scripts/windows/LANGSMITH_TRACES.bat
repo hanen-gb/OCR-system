@@ -3,24 +3,24 @@ set "ROOTDIR=%~dp0..\..\"
 title LangSmith — OCR PFE GLM
 cd /d "%ROOTDIR%"
 
-REM Lire le nom du projet depuis assistant\.env
+REM Read the project name from assistant\.env
 set "PROJECT=OCR-PFE-GLM"
 for /f "tokens=1,* delims==" %%A in ('findstr /i "LANGCHAIN_PROJECT" assistant\.env 2^>nul') do (
     set "PROJECT=%%B"
 )
 
 echo.
-echo  Ouverture de LangSmith...
-echo  Projet : %PROJECT%
+echo  Opening LangSmith...
+echo  Project: %PROJECT%
 echo.
 
-REM Ouvrir LangSmith dans le navigateur par defaut
+REM Open LangSmith in the default browser
 start "" "https://smith.langchain.com"
 
-echo  Page LangSmith ouverte dans le navigateur.
-echo  Naviguez vers le projet : %PROJECT%
+echo  LangSmith opened in the browser.
+echo  Go to the project: %PROJECT%
 echo.
-echo  Astuce : cliquez sur un Run pour voir le graphe
-echo           et la trace complete de chaque agent.
+echo  Tip: click a run to see the graph
+echo       and the full trace of each agent.
 echo.
 timeout /t 4 >nul

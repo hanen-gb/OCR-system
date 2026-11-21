@@ -113,7 +113,7 @@ const DocumentsPage = () => {
       e.result.entities.some((en) => en.text.toLowerCase().includes(search.toLowerCase())),
   );
 
-  // ── Base de données PostgreSQL ─────────────────────────────────────────────
+  // ── PostgreSQL database ────────────────────────────────────────────────────
   const [dbDocs, setDbDocs]           = useState<DbDocument[]>([]);
   const [dbLoading, setDbLoading]     = useState(false);
   const [dbError, setDbError]         = useState<string | null>(null);
@@ -123,7 +123,7 @@ const DocumentsPage = () => {
   const isAdmin = session?.role === "admin";
 
   const handleClearDocuments = async () => {
-    if (!confirm("Vider la base PostgreSQL (documents + factures + traites) ? Cette action est irréversible.")) return;
+    if (!confirm("Empty the PostgreSQL database (documents + invoices + bills)? This cannot be undone.")) return;
     setClearingDb(true);
     try {
       const token = localStorage.getItem("odsinet_agent_token");
@@ -133,7 +133,7 @@ const DocumentsPage = () => {
         signal: AbortSignal.timeout(5_000),
       });
       const data = await res.json();
-      alert(data.message ?? "Base PostgreSQL vidée");
+      alert(data.message ?? "PostgreSQL database emptied");
       fetchDbDocs();
     } catch (err) {
       alert("Erreur : " + (err instanceof Error ? err.message : String(err)));
@@ -153,7 +153,7 @@ const DocumentsPage = () => {
       const data = await res.json();
       setDbDocs(data.documents ?? []);
     } catch (err) {
-      setDbError(err instanceof Error ? err.message : "Erreur de connexion au serveur agent (port 8002)");
+      setDbError(err instanceof Error ? err.message : "Cannot connect to the agent server (port 8002)");
     } finally {
       setDbLoading(false);
     }
@@ -187,7 +187,7 @@ const DocumentsPage = () => {
           }`}
         >
           <Database className="w-3.5 h-3.5" />
-          Base de données
+          Database
           {dbDocs.length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold"
               style={{ background: "hsl(var(--primary) / 0.12)", color: "hsl(var(--primary))" }}>
@@ -214,7 +214,7 @@ const DocumentsPage = () => {
         </button>
       </div>
 
-      {/* ══ ONGLET BASE DE DONNÉES ══════════════════════════════════════════════ */}
+      {/* ══ DATABASE TAB ════════════════════════════════════════════════════════ */}
       {activeTab === "db" && (
         <div className="space-y-4">
           {/* Barre recherche + refresh */}
@@ -223,7 +223,7 @@ const DocumentsPage = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Rechercher par fichier, fournisseur, numéro…"
+                placeholder="Search by file, supplier, number…"
                 value={dbSearch}
                 onChange={(e) => setDbSearch(e.target.value)}
                 className="input-base pl-9"
@@ -240,7 +240,7 @@ const DocumentsPage = () => {
                 onClick={handleClearDocuments}
                 disabled={clearingDb}
                 style={{ color: "hsl(0 72% 50%)", borderColor: "hsl(0 72% 50% / 0.4)" }}
-                title="Vide entièrement la base PostgreSQL (documents, factures, traites)"
+                title="Empties the PostgreSQL database entirely (documents, invoices, bills)"
               >
                 <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                 {clearingDb ? "Nettoyage…" : "Vider la base"}
@@ -248,7 +248,7 @@ const DocumentsPage = () => {
             )}
           </div>
 
-          {/* Erreur serveur agent */}
+          {/* Agent server error */}
           {dbError && (
             <div className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm"
               style={{ background: "hsl(0 72% 50% / 0.06)", border: "1px solid hsl(0 72% 50% / 0.2)", color: "hsl(0 72% 50%)" }}>
@@ -261,11 +261,11 @@ const DocumentsPage = () => {
             </div>
           )}
 
-          {/* Chargement */}
+          {/* Loading */}
           {dbLoading && (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="w-5 h-5 animate-spin text-primary mr-2" />
-              <span className="text-sm text-muted-foreground">Chargement depuis PostgreSQL…</span>
+              <span className="text-sm text-muted-foreground">Loading from PostgreSQL…</span>
             </div>
           )}
 
@@ -276,24 +276,24 @@ const DocumentsPage = () => {
                 <Database className="w-8 h-8 text-primary" />
               </div>
               <p className="font-semibold text-foreground">
-                {dbDocs.length === 0 ? "Aucun document en base" : "Aucun résultat"}
+                {dbDocs.length === 0 ? "No document in the database" : "No result"}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 {dbDocs.length === 0
-                  ? "Analysez un document puis cliquez « Enregistrer en BDD »."
-                  : `Aucun résultat pour « ${dbSearch} »`}
+                  ? "Analyse a document, then click “Save to database”."
+                  : `No result for “${dbSearch}”`}
               </p>
             </div>
           )}
 
-          {/* Tableau des documents PostgreSQL */}
+          {/* PostgreSQL documents table */}
           {!dbLoading && !dbError && filteredDb.length > 0 && (
             <div className="glass-card rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ borderBottom: "1px solid hsl(var(--border))", background: "hsl(var(--muted) / 0.5)" }}>
-                      {["#", "Fichier", "Type", "N°", "Fournisseur / Tireur", "Montant", "Statut audit", "Workflow", "Date traitement", "Durée"].map((h) => (
+                      {["#", "File", "Type", "No.", "Supplier / Drawer", "Amount", "Audit status", "Workflow", "Processed on", "Duration"].map((h) => (
                         <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                           {h}
                         </th>
@@ -331,7 +331,7 @@ const DocumentsPage = () => {
                             <p className="truncate">{doc.fournisseur ?? "—"}</p>
                           </td>
                           <td className="px-4 py-2.5 text-xs font-mono text-foreground whitespace-nowrap">
-                            {doc.montant != null ? `${Number(doc.montant).toFixed(3)} DT` : "—"}
+                            {doc.montant != null ? `${Number(doc.montant).toFixed(3)} TND` : "—"}
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-[10px] font-semibold" style={{ color: auditColor }}>
@@ -364,7 +364,7 @@ const DocumentsPage = () => {
                   {dbSearch && ` · filtre : « ${dbSearch} »`}
                 </p>
                 <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                  <span>{dbDocs.filter(d => d.status === "VALIDATED").length} validés</span>
+                  <span>{dbDocs.filter(d => d.status === "VALIDATED").length} validated</span>
                   <span>{dbDocs.filter(d => d.status === "PENDING").length} en attente</span>
                 </div>
               </div>

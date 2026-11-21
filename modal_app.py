@@ -17,9 +17,9 @@ image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install("git")
     .pip_install(
-        # torch >= 2.4 requis par git transformers + CUDA 12.1
+        # torch >= 2.4 required by transformers (git) + CUDA 12.1
         "torch==2.4.1",
-        "torchvision==0.19.1",     # requis par Glm46VVideoProcessor
+        "torchvision==0.19.1",     # required by Glm46VVideoProcessor
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
     .pip_install(
@@ -31,12 +31,12 @@ image = (
         "Pillow==10.3.0",
         "huggingface_hub==0.28.1",
         "sentencepiece",
-        "tiktoken",       # requis par le code custom GLM-4V
-        "einops",         # requis par le code custom GLM-4V (attention)
-        "numpy<2",        # evite le conflit NumPy 1.x vs 2.x avec torch
+        "tiktoken",       # required by the custom GLM-4V code
+        "einops",         # required by the custom GLM-4V code (attention)
+        "numpy<2",        # avoids the NumPy 1.x vs 2.x conflict with torch
     )
     .pip_install(
-        # transformers version git (obligatoire pour zai-org/GLM-OCR)
+        # transformers git version (required by zai-org/GLM-OCR)
         "git+https://github.com/huggingface/transformers.git"
     )
 )
@@ -44,7 +44,7 @@ image = (
 # ── App Modal ─────────────────────────────────────────────────────────────────
 app = modal.App("glmocr-backend", image=image)
 
-# ── Volume cache : modele telecharge une seule fois ───────────────────────────
+# ── Cache volume: the model is downloaded only once ──────────────────────────
 model_cache = modal.Volume.from_name("glmocr-model-cache", create_if_missing=True)
 
 HF_MODEL_REPO      = "Goubaa/glmocr-factures"
@@ -70,9 +70,9 @@ ENTITIES_TRAITE = [
     "tireur", "tire", "rib", "domiciliation",
 ]
 
-# Le modele a ete fine-tune pour repondre avec ces cles en minuscules (ENTITIES_TRAITE),
-# mais le frontend (TRAITE_LABELS dans frontend/src/lib/api.ts) attend des labels en
-# MAJUSCULES pour les entites retournees par /predict. Ce mapping fait le pont.
+# The model was fine-tuned to answer with these lower-case keys (ENTITIES_TRAITE),
+# but the frontend (TRAITE_LABELS in frontend/src/lib/api.ts) expects UPPER-CASE
+# labels for the entities returned by /predict. This mapping bridges the two.
 ENTITIES_TRAITE_LABEL_MAP = {
     "numero_traite":   "NUMERO_TRAITE",
     "date_echeance":   "DATE_ECHEANCE",
@@ -134,7 +134,7 @@ FORMAT :
 {"numero_traite": "...", "date_echeance": "...", "montant": "...", "tireur": "...", "tire": "...", "rib": "...", "domiciliation": "..."}"""
 
 
-# ── Classificateur (CPU — MobileNet léger) ───────────────────────────────────
+# ── Classifier (CPU — lightweight MobileNet) ─────────────────────────────────
 @app.cls(
     cpu=2,
     scaledown_window=600,
@@ -156,14 +156,14 @@ class Classifier:
             cache_dir=CACHE_PATH,
         )
 
-        # Checkpoint dict sauvegardé avec torch.save({..., "model_state": ..., "classes": [...]})
+        # Checkpoint dict saved with torch.save({..., "model_state": ..., "classes": [...]})
         checkpoint = torch.load(weights_path, map_location="cpu")
 
         # ["factures", "traites"] → index 0 = factures, index 1 = traites
         classes = checkpoint.get("classes", ["factures", "traites"])
         self.idx_to_class = {i: c for i, c in enumerate(classes)}
 
-        # Architecture identique au notebook Kaggle
+        # Same architecture as in the Kaggle notebook
         net = models.mobilenet_v2(weights=None)
         net.classifier = nn.Sequential(
             nn.Dropout(p=0.4),
@@ -183,10 +183,10 @@ class Classifier:
         from PIL import Image
         import torchvision.transforms as T
 
-        # Transform identique au test_transform du notebook Kaggle
+        # Same transform as test_transform in the Kaggle notebook
         transform = T.Compose([
             T.Resize((224, 224)),
-            T.Grayscale(num_output_channels=3),   # obligatoire : même pipeline qu'à l'entraînement
+            T.Grayscale(num_output_channels=3),   # required: same pipeline as for training
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
@@ -206,35 +206,35 @@ class Classifier:
 # ── Classe principale (GPU T4) ────────────────────────────────────────────────
 @app.cls(
     gpu="T4",
-    scaledown_window=600,              # garde le modele 10 min en RAM (anti cold-start)
-    timeout=300,                       # 5 min max par requete
-    volumes={CACHE_PATH: model_cache}, # cache persistant du modele
+    scaledown_window=600,              # keeps the model in memory for 10 min (avoids cold starts)
+    timeout=300,                       # 5 min max per request
+    volumes={CACHE_PATH: model_cache}, # persistent model cache
 )
 class Model:
 
     @modal.enter()
     def load(self):
-        """Charge le modele une seule fois au demarrage du container."""
+        """Loads the model once when the container starts."""
         import os, torch, traceback
         from transformers import AutoProcessor, AutoModelForImageTextToText
 
         os.environ["TRANSFORMERS_CACHE"] = CACHE_PATH
         os.environ["HF_HOME"]            = CACHE_PATH
 
-        print(f"=== DEBUT CHARGEMENT {HF_MODEL_REPO} ===")
+        print(f"=== LOADING {HF_MODEL_REPO} ===")
         import time; t0 = time.time()
 
         try:
-            print("Etape 1/2 : chargement du Processor...")
+            print("Step 1/2: loading the processor...")
             self.processor = AutoProcessor.from_pretrained(
                 HF_MODEL_REPO,
-                use_fast=False,        # requis pour GLM-OCR (notebook)
+                use_fast=False,        # required by GLM-OCR (as in the notebook)
                 trust_remote_code=True,
                 cache_dir=CACHE_PATH,
             )
             print("Processor OK")
 
-            print("Etape 2/2 : chargement du Modele (float16)...")
+            print("Step 2/2: loading the model (float16)...")
             self.model = AutoModelForImageTextToText.from_pretrained(
                 HF_MODEL_REPO,
                 dtype=torch.float16,      # remplace torch_dtype (deprecated)
@@ -243,29 +243,29 @@ class Model:
                 cache_dir=CACHE_PATH,
             )
             self.model.eval()
-            print(f"=== MODELE PRET EN {time.time()-t0:.1f}s ===")
+            print(f"=== MODEL READY IN {time.time()-t0:.1f}s ===")
 
         except Exception as e:
-            print(f"=== ERREUR CHARGEMENT : {type(e).__name__}: {e} ===")
+            print(f"=== LOADING ERROR: {type(e).__name__}: {e} ===")
             traceback.print_exc()
             raise
 
     @modal.method()
     def predict(self, image_bytes: bytes) -> dict:
-        """Inference GLM-OCR sur une image (bytes)."""
+        """GLM-OCR inference on an image (bytes)."""
         import gc, io, json, re, time, torch
         from PIL import Image
 
         t0 = time.time()
 
-        # Charger et redimensionner l'image
+        # Load and resize the image
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h  = image.size
         if max(w, h) > 1024:
             scale = 1024 / max(w, h)
             image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
-        # Construire le message — format exact du notebook de fine-tuning
+        # Build the message — exact format of the fine-tuning notebook
         messages = [{
             "role": "user",
             "content": [
@@ -274,7 +274,7 @@ class Model:
             ],
         }]
 
-        # apply_chat_template avec tokenize=True (une seule étape, comme le notebook)
+        # apply_chat_template with tokenize=True (single step, as in the notebook)
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
@@ -283,7 +283,7 @@ class Model:
             return_tensors="pt",
             processor_kwargs={"return_mm_token_type_ids": True},
         )
-        # Déplacer vers GPU et retirer token_type_ids (incompatible avec generate)
+        # Move to GPU and drop token_type_ids (not supported by generate)
         inputs = {
             k: v.to("cuda") if isinstance(v, torch.Tensor) else v
             for k, v in inputs.items()
@@ -306,7 +306,7 @@ class Model:
 
         print(f"GLM raw output: {raw_text[:200]}")
 
-        # Parser le JSON
+        # Parse the JSON
         parsed = {}
         match  = re.search(r'\{[^{}]*\}', raw_text, re.DOTALL)
         if match:
@@ -334,7 +334,7 @@ class Model:
         }
 
 
-# ── Classe GLM Lettre de change (GPU T4) ─────────────────────────────────────
+# ── GLM class for bills of exchange (T4 GPU) ─────────────────────────────────
 @app.cls(
     gpu="T4",
     scaledown_window=600,
@@ -351,7 +351,7 @@ class ModelTraite:
         os.environ["TRANSFORMERS_CACHE"] = CACHE_PATH
         os.environ["HF_HOME"]            = CACHE_PATH
 
-        print(f"=== DEBUT CHARGEMENT {HF_TRAITE_REPO} ===")
+        print(f"=== LOADING {HF_TRAITE_REPO} ===")
         import time; t0 = time.time()
 
         try:
@@ -369,9 +369,9 @@ class ModelTraite:
                 cache_dir=CACHE_PATH,
             )
             self.model.eval()
-            print(f"=== MODELE TRAITE PRET EN {time.time()-t0:.1f}s ===")
+            print(f"=== BILL-OF-EXCHANGE MODEL READY IN {time.time()-t0:.1f}s ===")
         except Exception as e:
-            print(f"=== ERREUR CHARGEMENT TRAITE : {type(e).__name__}: {e} ===")
+            print(f"=== BILL-OF-EXCHANGE MODEL LOADING ERROR: {type(e).__name__}: {e} ===")
             traceback.print_exc()
             raise
 
@@ -489,9 +489,9 @@ def fastapi_app():
         image_bytes = await file.read()
 
         try:
-            # ── Étape 1 : classification (sauf si override manuel) ────────────
+            # ── Step 1: classification (unless manually overridden) ───────────
             if document_type in ("factures", "traites"):
-                # Override manuel : bypass le classifieur
+                # Manual override: bypass the classifier
                 doc_type   = document_type
                 confidence = 1.0
                 print(f"[PREDICT] Override manuel : {doc_type}")
@@ -501,7 +501,7 @@ def fastapi_app():
                 confidence     = classification["confidence"]
                 print(f"[PREDICT] Classifieur : {doc_type} (conf={confidence:.2f})")
 
-            # ── Étape 2 : routage vers le bon modèle ─────────────────────────
+            # ── Step 2: routing to the matching model ────────────────────────
             if doc_type == "factures":
                 result = await Model().predict.remote.aio(image_bytes)
             else:
@@ -511,7 +511,7 @@ def fastapi_app():
             result["classification_confidence"] = confidence
 
         except Exception as e:
-            raise HTTPException(500, f"Erreur inference : {e}")
+            raise HTTPException(500, f"Inference error: {e}")
 
         return JSONResponse(result)
 

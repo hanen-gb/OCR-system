@@ -21,7 +21,7 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
   CLIENT:         User,
   FOURNISSEUR:    Building2,
   MONTANT_TTC:    DollarSign,
-  // Traite (lettre de change)
+  // Bill of exchange
   NUMERO_TRAITE:  Hash,
   DATE_ECHEANCE:  Calendar,
   TIREUR:         Building2,
@@ -71,7 +71,7 @@ interface HistoryEntry {
   corrected?: boolean;
 }
 
-// Mapping clés analyse_contextuelle → labels Entity (majuscules/minuscules)
+// Mapping of analyse_contextuelle keys → Entity labels (upper/lower case)
 const CTX_KEY_MAP: [string, string][] = [
   ["TIREUR", "TIREUR"],         ["tireur", "TIREUR"],
   ["TIRE", "TIRE"],             ["tire", "TIRE"],
@@ -109,7 +109,7 @@ function updateHistoryEntry(id: string, updatedResult: PredictResult) {
   }
 }
 
-// ── Composant entité éditable ───────────────────────────────────────────────
+// ── Editable entity component ────────────────────────────────────────────────
 function EntityRow({
   label,
   original,
@@ -149,7 +149,7 @@ function EntityRow({
         border: isModified ? "1px solid hsl(38 90% 52% / 0.3)" : "1px solid transparent",
       }}
     >
-      {/* Icône */}
+      {/* Icon */}
       <div
         className="p-1.5 rounded-md shrink-0"
         style={{ background: isModified ? "hsl(38 90% 52% / 0.15)" : "hsl(var(--primary) / 0.1)" }}
@@ -157,7 +157,7 @@ function EntityRow({
         <Icon className="w-3.5 h-3.5" style={{ color: isModified ? "hsl(38 90% 52%)" : "hsl(var(--primary))" }} />
       </div>
 
-      {/* Label + valeur */}
+      {/* Label + value */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
           <p className="text-[10px] font-mono text-muted-foreground">{label}</p>
@@ -191,7 +191,7 @@ function EntityRow({
           </p>
         )}
 
-        {/* Valeur originale si modifiée */}
+        {/* Original value if modified */}
         {isModified && original && original !== "N/A" && (
           <p className="text-[10px] text-muted-foreground line-through mt-0.5 truncate">{original}</p>
         )}
@@ -203,7 +203,7 @@ function EntityRow({
           <button
             onClick={() => { onChange(original); setEditing(false); }}
             className="p-1 rounded hover:bg-muted transition-colors"
-            title="Rétablir valeur originale"
+            title="Restore the original value"
             style={{ color: "hsl(var(--muted-foreground))" }}
           >
             <RotateCcw className="w-3 h-3" />
@@ -226,7 +226,7 @@ function EntityRow({
   );
 }
 
-// ── Composant entité lecture seule (affichage GLM brut) ─────────────────────
+// ── Read-only entity component (raw GLM output) ──────────────────────────────
 function EntityReadOnlyRow({ label, value }: { label: string; value: string }) {
   const { t } = useApp();
   const Icon = ENTITY_ICONS[label] ?? Tag;
@@ -285,8 +285,8 @@ type AuditCheckData = {
 function _fmtFirstSeen(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
-      + " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+      + " at " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return iso.slice(0, 10);
   }
@@ -315,14 +315,14 @@ function AuditCheckCard({ title, data }: { title: string; data: AuditCheckData }
       </p>
       {data.detail && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{data.detail}</p>}
       {typeof data.ecart === "number" && Math.abs(data.ecart) > 0.001 && (
-        <p className="text-[10px] text-muted-foreground mt-0.5">écart : {data.ecart.toFixed(3)}</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">difference: {data.ecart.toFixed(3)}</p>
       )}
       {data.champs_manquants && data.champs_manquants.length > 0 && (
         <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{data.champs_manquants.join(", ")}</p>
       )}
       {data.status === "DOUBLON" && data.first_seen && (
         <p className="text-[10px] mt-1 font-medium" style={{ color }}>
-          1er dépôt : {_fmtFirstSeen(data.first_seen)}
+          First stored: {_fmtFirstSeen(data.first_seen)}
         </p>
       )}
     </div>
@@ -368,17 +368,17 @@ const UploadPage = () => {
   const [docTypeGlm, setDocTypeGlm]           = useState<"factures" | "traites" | null>(null);
   const [forcedDocType, setForcedDocType]     = useState<"auto" | "factures" | "traites">("auto");
 
-  // Labels actifs selon le type de document détecté
+  // Active labels according to the detected document type
   const activeLabels: readonly string[] = docTypeGlm === "traites" ? TRAITE_LABELS : TARGET_LABELS;
 
-  // Human-in-the-loop : valeurs éditables + originales
+  // Human-in-the-loop: editable values + original values
   const [editedMap, setEditedMap]       = useState<Record<string, string>>({});
   const [originalMap, setOriginalMap]   = useState<Record<string, string>>({});
   const [savedCorrections, setSavedCorrections] = useState(false);
   const [dbStatus, setDbStatus]               = useState<"idle"|"saving"|"ok"|"error">("idle");
   const [dbError,  setDbError]                = useState<string | null>(null);
 
-  // Agent Extracteur — Analyse Contextuelle et Complémentaire
+  // Extractor Agent — contextual and complementary analysis
   const [agentResult, setAgentResult]   = useState<AgentAnalysisResult | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError]     = useState<string | null>(null);
@@ -386,11 +386,11 @@ const UploadPage = () => {
   const [agentCopied, setAgentCopied]   = useState(false);
   const [agentStarted, setAgentStarted] = useState(false);
 
-  // Statut du serveur agent (ping /health au chargement de la page)
+  // Agent server status (ping /health when the page loads)
   const [agentStatus, setAgentStatus]   = useState<"checking" | "online" | "offline">("checking");
 
-  // Édition manuelle de l'analyse contextuelle (HITL) — corrections propagées
-  // à l'Auditeur (Agent 2) et à l'Analyste (Agent 3) sans relancer l'extraction
+  // Manual editing of the contextual analysis (HITL) — corrections are propagated
+  // to the Auditor (Agent 2) and the Analyst (Agent 3) without re-running the extraction
   const [contextualEditing, setContextualEditing]   = useState(false);
   const [contextualDraft, setContextualDraft]       = useState("");
   const [contextualOverride, setContextualOverride] = useState<Record<string, unknown> | null>(null);
@@ -437,8 +437,8 @@ const UploadPage = () => {
     setContextualOverride(parsed);
     setContextualEditing(false);
 
-    // Propage la correction aux Agents 2 (Audit) et 3 (Analyse) — sans
-    // relancer l'extraction (Agent 1), juste un recalcul sur le JSON corrigé.
+    // Propagates the correction to Agents 2 (audit) and 3 (analysis) — without
+    // re-running the extraction (Agent 1), only a recomputation on the corrected JSON.
     setReanalyzing(true);
     try {
       const baseEntities: Record<string, string> = {};
@@ -458,7 +458,7 @@ const UploadPage = () => {
           : prev,
       );
     } catch {
-      setContextualError("Échec de la re-vérification — vérifiez que le backend agent tourne.");
+      setContextualError("Re-check failed — make sure the agent backend is running.");
     } finally {
       setReanalyzing(false);
     }
@@ -482,10 +482,10 @@ const UploadPage = () => {
     }
   }, []);
 
-  // Ping automatique au chargement de la page
+  // Automatic ping when the page loads
   useEffect(() => { checkAgentHealth(); }, [checkAgentHealth]);
 
-  // Fermer le zoom image avec Échap
+  // Close the image zoom with Escape
   useEffect(() => {
     if (!imageZoomOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeImageZoom(); };
@@ -493,7 +493,7 @@ const UploadPage = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [imageZoomOpen]);
 
-  // Mise à jour du contexte chatbot global quand l'analyse est disponible
+  // Update the global chatbot context when the analysis is available
   useEffect(() => {
     if (agentResult?.status === "ok") {
       setDocContext({
@@ -501,7 +501,7 @@ const UploadPage = () => {
         audit    : agentResult.audit,
         analyst  : agentResult.analyse,
       });
-      // Si le GLM a échoué (docTypeGlm === null), déterminer le type via l'agent
+      // If GLM failed (docTypeGlm === null), get the type from the agent
       if (docTypeGlm === null) {
         const agentDocType = agentResult.analyse_contextuelle._document_type as string;
         if (agentDocType && (agentDocType.includes("traite") || agentDocType.includes("lettre") || agentDocType.includes("change"))) {
@@ -516,10 +516,10 @@ const UploadPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentResult, mergedContextual, setDocContext]);
 
-  // Si le GLM n'a extrait aucune entité, enrichir l'entrée historique avec les données de l'agent
+  // If GLM extracted no entity, enrich the history entry with the agent data
   useEffect(() => {
     if (agentResult?.status !== "ok" || !historyId || !result) return;
-    if (result.entities.length > 0) return; // GLM a déjà des entités, rien à faire
+    if (result.entities.length > 0) return; // GLM already has entities, nothing to do
 
     const ctx = (agentResult.analyse_contextuelle || {}) as Record<string, unknown>;
     const seen = new Set<string>();
@@ -549,7 +549,7 @@ const UploadPage = () => {
 
   const handleFile = useCallback(async (f: File) => {
     const allowed = ["image/jpeg", "image/jpg", "image/png", "image/bmp", "image/tiff"];
-    if (!allowed.includes(f.type)) { setError("Format non supporté — JPG, PNG, BMP, TIFF"); return; }
+    if (!allowed.includes(f.type)) { setError("Unsupported format — JPG, PNG, BMP, TIFF"); return; }
     if (f.size > 20 * 1024 * 1024) { setError(t("upload_max")); return; }
 
     const url = URL.createObjectURL(f);
@@ -558,7 +558,7 @@ const UploadPage = () => {
     setStep(1); setProcessing(true); setPipelineStep(0);
     setSavedCorrections(false);
 
-    // Réinitialise l'état de l'agent pour ce nouveau document
+    // Reset the agent state for this new document
     setAgentResult(null);
     setAgentError(null);
     setAgentLoading(false);
@@ -572,7 +572,7 @@ const UploadPage = () => {
       setElapsedMs(ms);
       setResult(res);
 
-      // Afficher le résultat de classification sur le step 2
+      // Show the classification result on step 2
       if (res.doc_type) {
         const label = res.doc_type === "factures" ? t("classify_facture") : t("classify_traite");
         const override = forcedDocType !== "auto" ? " ✎" : "";
@@ -580,12 +580,12 @@ const UploadPage = () => {
         setClassificationConf(res.classification_confidence ?? null);
       }
 
-      // Détecter le type et choisir les labels appropriés
+      // Detect the type and choose the matching labels
       const detectedType: "factures" | "traites" = res.doc_type === "traites" ? "traites" : "factures";
       setDocTypeGlm(detectedType);
       const currentLabels: readonly string[] = detectedType === "traites" ? TRAITE_LABELS : TARGET_LABELS;
 
-      // Initialiser les maps pour l'édition (normalise les labels en majuscules)
+      // Initialise the maps used for editing (labels normalised to upper case)
       const map: Record<string, string> = {};
       for (const e of res.entities) map[e.label.toUpperCase()] = e.text;
       for (const lbl of currentLabels) if (!map[lbl]) map[lbl] = "";
@@ -603,18 +603,18 @@ const UploadPage = () => {
         inferenceMs: ms,
       });
     } catch (err: unknown) {
-      // Backend GLM indisponible — on avance quand même à l'étape 2
-      // pour afficher les résultats de l'agent (qui tourne en parallèle)
+      // GLM backend unavailable — move to step 2 anyway
+      // to show the agent results (running in parallel)
       const ms = Date.now() - t0;
       setElapsedMs(ms);
-      setError(`Backend GLM hors ligne — résultats agent uniquement`);
+      setError(`GLM backend offline — agent results only`);
       const stubResult: PredictResult = {
         entities: [],
         full_text: `(Backend GLM indisponible : ${err instanceof Error ? err.message : String(err)})`,
         timing: { inference_ms: 0, total_ms: ms },
       };
       setResult(stubResult);
-      setDocTypeGlm(null); // sera déterminé via agentResult si disponible
+      setDocTypeGlm(null); // set from agentResult when available
       const map: Record<string, string> = {};
       for (const lbl of TARGET_LABELS) map[lbl] = "";
       setOriginalMap({ ...map });
@@ -663,7 +663,7 @@ const UploadPage = () => {
     setAgentExpanded(true);
 
     const docType = docTypeGlm === "traites" ? "lettre_de_change" : "facture";
-    // Passer les entités éditées comme base_entities → auditeur reçoit MONTANT corrigé
+    // Pass the edited entities as base_entities → the auditor receives the corrected MONTANT
     const baseEntities: Record<string, string> = {};
     for (const [k, v] of Object.entries(editedMap)) {
       if (v && v.trim()) baseEntities[k] = v.trim();
@@ -732,7 +732,7 @@ const UploadPage = () => {
     };
 
     try {
-      // Si le token est absent (agent était hors ligne au login), on le re-demande maintenant
+      // If the token is missing (agent offline at login time), request it again now
       let token = getAgentToken();
       if (!token) {
         const session = getSession();
@@ -763,7 +763,7 @@ const UploadPage = () => {
   };
 
   const handleExport = () => {
-    // Entités finales : toutes les valeurs non vides (N/A inclus → champ traité mais non trouvé)
+    // Final entities: all non-empty values (N/A included → field processed but not found)
     const finalEntities: Record<string, string> = {};
     for (const lbl of activeLabels) {
       const v = editedMap[lbl];
@@ -774,7 +774,7 @@ const UploadPage = () => {
       }
     }
 
-    // Diff corrections : uniquement les champs qui ont changé
+    // Corrections diff: only the fields that changed
     const corrections: Record<string, { original: string; corrected: string }> = {};
     for (const lbl of activeLabels) {
       if (editedMap[lbl] !== originalMap[lbl]) {
@@ -805,20 +805,20 @@ const UploadPage = () => {
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-screen-xl mx-auto">
 
-      {/* En-tête avec titre + badge statut agent */}
+      {/* Header with title + agent status badge */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-foreground">{t("upload_title")}</h1>
 
         {/* Badge statut Agent IA — toujours visible */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card">
-          {/* Indicateur coloré */}
+          {/* Coloured indicator */}
           <div className={`w-2 h-2 rounded-full shrink-0 ${
             agentStatus === "online"   ? "bg-green-500" :
             agentStatus === "checking" ? "bg-yellow-400 animate-pulse" :
                                          "bg-red-400"
           }`} />
 
-          {/* Icône agent */}
+          {/* Agent icon */}
           <Sparkles className="w-3.5 h-3.5 shrink-0" style={{
             color: agentStatus === "online"   ? "hsl(152 60% 40%)" :
                    agentStatus === "checking" ? "hsl(38 90% 52%)"  :
@@ -832,16 +832,16 @@ const UploadPage = () => {
             {agentStatus === "checking" && <span className="text-muted-foreground">{t("agent_status_checking")}</span>}
           </span>
 
-          {/* Bouton re-vérifier */}
+          {/* Re-check button */}
           <button
             onClick={checkAgentHealth}
-            title="Vérifier à nouveau"
+            title="Check again"
             className="ml-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
           >
             {agentStatus === "checking" ? "…" : "↺"}
           </button>
 
-          {/* Commande à lancer si hors ligne */}
+          {/* Command to run when offline */}
           {agentStatus === "offline" && (
             <span className="text-[10px] text-muted-foreground/60 font-mono border-l border-border pl-2">
               uvicorn api.main:app --port 8002
@@ -875,7 +875,7 @@ const UploadPage = () => {
               <input id="file-input" type="file" className="hidden"
                 accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif"
                 onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-              {/* Input caméra — ouvre l'appareil photo directement sur mobile */}
+              {/* Camera input — opens the camera directly on mobile */}
               <input id="camera-input" type="file" className="hidden"
                 accept="image/*" capture="environment"
                 onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
@@ -968,11 +968,11 @@ const UploadPage = () => {
           </motion.div>
         )}
 
-        {/* ── STEP 2 : Résultats ── */}
+        {/* ── STEP 2: results ── */}
         {step === 2 && result && (
           <motion.div key="results" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
 
-            {/* Barre succès + actions */}
+            {/* Success bar + actions */}
             <div className="flex flex-wrap items-center justify-between gap-3 glass-card rounded-lg px-5 py-3">
               <div className="flex items-center gap-3">
                 <div className="p-1.5 rounded-lg bg-success/10">
@@ -988,7 +988,7 @@ const UploadPage = () => {
               </Button>
             </div>
 
-            {/* Avertissement backend GLM hors ligne */}
+            {/* GLM backend offline warning */}
             {error && (
               <div className="flex items-center gap-2 px-4 py-3 rounded-lg text-sm"
                 style={{ background: "hsl(38 90% 52% / 0.08)", color: "hsl(38 90% 52%)", border: "1px solid hsl(38 90% 52% / 0.3)" }}>
@@ -997,7 +997,7 @@ const UploadPage = () => {
               </div>
             )}
 
-            {/* Métriques rapides */}
+            {/* Quick metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { label: t("upload_metric_entities"), value: `${result.entities.length}/${activeLabels.length}`, color: "text-primary" },
@@ -1024,7 +1024,7 @@ const UploadPage = () => {
               ))}
             </div>
 
-            {/* Image + Entités + Texte brut */}
+            {/* Image + entities + raw text */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
               {/* Image */}
@@ -1044,14 +1044,14 @@ const UploadPage = () => {
                       <ZoomIn className="w-4 h-4" />
                     </button>
                   </div>
-                  <img src={imageUrl} alt="document analysé"
+                  <img src={imageUrl} alt="analysed document"
                     className="w-full rounded-lg object-contain border border-border cursor-zoom-in"
                     style={{ maxHeight: 320, background: "hsl(var(--muted))" }}
                     onClick={openImageZoom} />
                 </div>
               )}
 
-              {/* Entités GLM — Human in the loop */}
+              {/* GLM entities — human in the loop */}
               <div className="glass-card rounded-lg p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -1107,14 +1107,14 @@ const UploadPage = () => {
                 <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {(result.timing.inference_ms / 1000).toFixed(1)}s inférence
+                    {(result.timing.inference_ms / 1000).toFixed(1)}s inference
                   </span>
                   <span>{(result.timing.total_ms / 1000).toFixed(1)}s total</span>
                 </div>
               </div>
             </div>
 
-            {/* ── Bouton lancement agents — après correction GLM ── */}
+            {/* ── Agents launch button — after the GLM correction ── */}
             {!agentStarted ? (
               <button
                 onClick={handleStartAgents}
@@ -1131,13 +1131,13 @@ const UploadPage = () => {
               </div>
             ) : null}
 
-            {/* ── Sections agents — visibles uniquement après lancement ── */}
+            {/* ── Agent sections — visible only after launch ── */}
             {agentStarted && (
               <>
-            {/* ── Analyse Contextuelle et Complémentaire (Agent LangGraph) ── */}
+            {/* ── Contextual and complementary analysis (LangGraph agent) ── */}
             <div className="glass-card rounded-lg overflow-hidden">
 
-              {/* En-tête du bloc */}
+              {/* Block header */}
               <button
                 type="button"
                 onClick={() => setAgentExpanded((v) => !v)}
@@ -1180,11 +1180,11 @@ const UploadPage = () => {
                 {agentExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
               </button>
 
-              {/* Corps du bloc */}
+              {/* Block body */}
               {agentExpanded && (
                 <div className="px-5 pb-5 border-t border-border">
 
-                  {/* Chargement */}
+                  {/* Loading */}
                   {agentLoading && (
                     <div className="flex items-center gap-3 py-6">
                       <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: "hsl(262 60% 55%)" }} />
@@ -1192,7 +1192,7 @@ const UploadPage = () => {
                     </div>
                   )}
 
-                  {/* Erreur réseau / Agent hors ligne */}
+                  {/* Network error / agent offline */}
                   {!agentLoading && agentError && (
                     <div className="flex items-center gap-3 py-4 px-4 mt-4 rounded-lg"
                       style={{ background: "hsl(0 72% 50% / 0.06)", border: "1px solid hsl(0 72% 50% / 0.2)" }}>
@@ -1206,7 +1206,7 @@ const UploadPage = () => {
                     </div>
                   )}
 
-                  {/* Erreur serveur (500 / extraction échouée) */}
+                  {/* Server error (500 / extraction failed) */}
                   {!agentLoading && !agentError && agentResult?.status === "error" && (
                     <div className="flex items-start gap-3 py-4 px-4 mt-4 rounded-lg"
                       style={{ background: "hsl(0 72% 50% / 0.06)", border: "1px solid hsl(0 72% 50% / 0.2)" }}>
@@ -1222,11 +1222,11 @@ const UploadPage = () => {
                     </div>
                   )}
 
-                  {/* Résultat — uniquement si status ok */}
+                  {/* Result — only when status is ok */}
                   {!agentLoading && agentResult?.status === "ok" && (
                     <div className="mt-4 space-y-3">
 
-                      {/* Type de document détecté */}
+                      {/* Detected document type */}
                       {mergedContextual?._document_type && (
                         <div className="flex items-center gap-2 text-xs">
                           <span className="text-muted-foreground">{t("agent_doc_type")} :</span>
@@ -1237,7 +1237,7 @@ const UploadPage = () => {
                         </div>
                       )}
 
-                      {/* JSON formaté + boutons copier / éditer */}
+                      {/* Formatted JSON + copy / edit buttons */}
                       <div className="relative">
                         <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
                           {!contextualEditing ? (
@@ -1365,7 +1365,7 @@ const UploadPage = () => {
                 {!agentLoading && agentResult && (
                   <button
                     onClick={handleRerunAgents}
-                    title="Relancer l'analyse avec les corrections actuelles"
+                    title="Re-run the analysis with the current corrections"
                     className="p-1.5 rounded-md hover:bg-muted transition-colors"
                     style={{ color: "hsl(var(--muted-foreground))" }}
                   >
@@ -1436,7 +1436,7 @@ const UploadPage = () => {
                         title={t("audit_kpi_arithmetic")}
                         data={agentResult.audit.nb_erreurs_calcul !== undefined ? {
                           status: agentResult.audit.nb_erreurs_calcul === 0 ? "OK" : "ERREUR",
-                          detail: `${agentResult.audit.nb_articles ?? 0} ligne(s), ${agentResult.audit.nb_erreurs_calcul} erreur(s)`,
+                          detail: `${agentResult.audit.nb_articles ?? 0} line(s), ${agentResult.audit.nb_erreurs_calcul} error(s)`,
                         } : null}
                       />
                       <AuditCheckCard
@@ -1525,7 +1525,7 @@ const UploadPage = () => {
                 {!agentLoading && agentResult && (
                   <button
                     onClick={handleRerunAgents}
-                    title="Relancer l'analyse avec les corrections actuelles"
+                    title="Re-run the analysis with the current corrections"
                     className="p-1.5 rounded-md hover:bg-muted transition-colors"
                     style={{ color: "hsl(var(--muted-foreground))" }}
                   >
@@ -1701,7 +1701,7 @@ const UploadPage = () => {
           style={{ background: "rgba(0,0,0,0.88)" }}
           onClick={closeImageZoom}
         >
-          {/* Barre de contrôle */}
+          {/* Control bar */}
           <div
             className="flex items-center gap-2 mb-3 px-4 py-2 rounded-xl select-none"
             style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)" }}
@@ -1710,7 +1710,7 @@ const UploadPage = () => {
             <button
               onClick={() => setImageZoomLevel(l => Math.max(0.25, +(l - 0.25).toFixed(2)))}
               className="p-1.5 rounded-md text-white hover:bg-white/20 transition-colors"
-              title="Réduire"
+              title="Minimise"
             >
               <ZoomOut className="w-4 h-4" />
             </button>
@@ -1735,7 +1735,7 @@ const UploadPage = () => {
             <button
               onClick={closeImageZoom}
               className="p-1.5 rounded-md text-white hover:bg-white/20 transition-colors"
-              title="Fermer (Échap)"
+              title="Close (Esc)"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1749,7 +1749,7 @@ const UploadPage = () => {
           >
             <img
               src={imageUrl}
-              alt="document analysé"
+              alt="analysed document"
               style={{
                 display: "block",
                 width:    imageZoomLevel === 1 ? "auto" : `${imageZoomLevel * 100}%`,

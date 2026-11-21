@@ -6,12 +6,12 @@ Lance avec :
     uvicorn api.main:app --host 0.0.0.0 --port 8002 --reload
 
 Endpoints :
-    POST /analyse        — Agent 1 + Agent 2 + Agent 3 enchaînés
+    POST /analyse        — Agent 1 + Agent 2 + Agent 3 chained
     POST /audit          — Agent 2 seul (JSON body : complete_entities + base_entities)
     POST /chat           — Agent 4 Chatbot
-    GET  /pg/documents   — Liste des documents enregistrés en base PostgreSQL
+    GET  /pg/documents   — List of the documents stored in PostgreSQL
     DELETE /documents/{type}/{number} — Supprime un document de PostgreSQL (admin)
-    GET  /health         — Vérifie que le serveur tourne
+    GET  /health         — Checks that the server is running
 """
 
 import asyncio
@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-# Permet d'importer state.py et agents/ depuis le dossier assistant/
+# Allows importing state.py and agents/ from the assistant/ folder
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI, File, Form, UploadFile, Depends, Header, HTTPException
@@ -53,15 +53,15 @@ from database import (
 # ── Scheduler rapport quotidien 8h00 ─────────────────────────────────────────
 
 async def _daily_report_scheduler():
-    """Tâche asyncio : envoie le rapport consolidé tous les jours à 8h00."""
-    print("[DAILY] Scheduler démarré — prochain rapport à 08:00")
+    """asyncio task: sends the consolidated report every day at 8:00."""
+    print("[DAILY] Scheduler started — next report at 08:00")
     while True:
         now    = datetime.now()
         target = now.replace(hour=8, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         wait_s = (target - now).total_seconds()
-        print(f"[DAILY] Prochain rapport dans {wait_s/3600:.1f}h ({target.strftime('%d/%m/%Y à 08:00')})")
+        print(f"[DAILY] Next report in {wait_s/3600:.1f}h ({target.strftime('%d/%m/%Y at 08:00')})")
         await asyncio.sleep(wait_s)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, send_daily_report)
@@ -97,18 +97,18 @@ class TokenRequest(BaseModel):
 
 
 def verify_token(authorization: str = Header(None)) -> dict:
-    """Dépendance FastAPI — valide le Bearer JWT et retourne le payload."""
+    """FastAPI dependency — validates the Bearer JWT and returns its payload."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token JWT manquant (Authorization: Bearer <token>)")
     try:
         payload = jwt.decode(authorization[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token JWT invalide ou expiré")
+        raise HTTPException(status_code=401, detail="Invalid or expired JWT")
 
 
 def _owner_from_token(authorization: Optional[str]) -> str:
-    """Extrait le username depuis un token optionnel — retourne 'anonymous' si absent/invalide."""
+    """Extracts the username from an optional token — returns 'anonymous' if missing/invalid."""
     if not authorization or not authorization.startswith("Bearer "):
         return "anonymous"
     try:
@@ -121,8 +121,8 @@ def _owner_from_token(authorization: Optional[str]) -> str:
 @app.post("/token")
 async def create_token(req: TokenRequest):
     """
-    Retourne un JWT signé pour le frontend.
-    Appelé une fois après login localStorage — stocké côté client.
+    Returns a signed JWT for the frontend.
+    Called once after the localStorage login — stored on the client side.
     """
     payload = {"sub": req.username, "role": req.role}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -140,20 +140,20 @@ async def health():
 async def analyse_document(
     file          : UploadFile = File(...),
     document_type : str        = Form(default="auto"),
-    base_entities : str        = Form(default="{}"),   # JSON string du GLM (optionnel)
-    authorization : Optional[str] = Header(default=None),  # JWT optionnel pour owner_username
+    base_entities : str        = Form(default="{}"),   # JSON string from GLM (optional)
+    authorization : Optional[str] = Header(default=None),  # optional JWT for owner_username
 ):
     """
     Pipeline complet : Agent 1 (Extraction) → Agent 2 (Audit).
 
-    Paramètres :
+    Parameters:
       file          : image (JPG, PNG, BMP, TIFF) ou PDF
       document_type : "facture" | "lettre_de_change" | "auto"
-      base_entities : JSON string des entités déjà extraites par le modèle GLM
+      base_entities : JSON string of the entities already extracted by the GLM model
 
     Retourne :
     {
-      "analyse_contextuelle": { ... },  ← Agent 1 : entités extraites
+      "analyse_contextuelle": { ... },  ← Agent 1: extracted entities
       "audit"               : { ... },  ← Agent 2 : rapport d'audit
       "file_type"           : "image|pdf_native|pdf_scanned",
       "status"              : "ok" | "error"
@@ -166,7 +166,7 @@ async def analyse_document(
     if suffix not in allowed:
         return JSONResponse(
             status_code=400,
-            content={"status": "error", "error": f"Format non supporté : {suffix}"},
+            content={"status": "error", "error": f"Unsupported format: {suffix}"},
         )
 
     try:
@@ -200,7 +200,7 @@ async def analyse_document(
         analyse = result.get("complete_entities") or result.get("augmented_entities") or {}
 
         print(f"\n[API] file_type : {result.get('file_type')}")
-        print(f"[API] Agent1 entities : {len(analyse)} champs")
+        print(f"[API] Agent1 entities: {len(analyse)} fields")
 
         # ── Agent 2 : Audit ───────────────────────────────────────────────────
         try:
@@ -221,7 +221,7 @@ async def analyse_document(
             traceback.print_exc()
             rapport_audit = {"status_validite": "ERREUR_AUDIT", "detail": str(e_audit)}
 
-        # ── PostgreSQL : sauvegarde résultats Agents 1 + 2 ──────────────────
+        # ── PostgreSQL: save the results of Agents 1 + 2 ────────────────────
         try:
             _processing_time = round(_time.perf_counter() - _t_start, 2)
             save_document(
@@ -233,7 +233,7 @@ async def analyse_document(
             )
             print(f"[API] Temps traitement : {_processing_time}s")
         except Exception as e_db:
-            print(f"[API] PostgreSQL save ignoré : {e_db}")
+            print(f"[API] PostgreSQL save skipped: {e_db}")
 
         # ── Agent 3 : Analyse comportementale ────────────────────────────────
         try:
@@ -283,7 +283,7 @@ async def analyse_document(
             pass
 
 
-# ── Agent 2 seul (audit d'un JSON existant) ───────────────────────────────────
+# ── Agent 2 alone (audit of an existing JSON) ─────────────────────────────────
 
 class AuditRequest(BaseModel):
     complete_entities: dict
@@ -293,8 +293,8 @@ class AuditRequest(BaseModel):
 @app.post("/audit")
 async def audit_only(req: AuditRequest):
     """
-    Audite directement un JSON d'entités (sans ré-extraction).
-    Utile pour re-auditer après correction manuelle.
+    Audits a JSON of entities directly (without re-extraction).
+    Useful to re-audit after a manual correction.
     """
     try:
         audit_state = auditor_graph.invoke({
@@ -311,7 +311,7 @@ async def audit_only(req: AuditRequest):
         )
 
 
-# ── Agent 3 seul (analyse comportementale d'un JSON existant) ─────────────────
+# ── Agent 3 alone (behavioural analysis of an existing JSON) ──────────────────
 
 class AnalystRequest(BaseModel):
     complete_entities: dict
@@ -321,9 +321,9 @@ class AnalystRequest(BaseModel):
 @app.post("/analyst")
 async def analyst_only(req: AnalystRequest):
     """
-    Ré-analyse directement un JSON d'entités (sans ré-extraction).
-    Appelé après une correction manuelle de l'analyse contextuelle (HITL),
-    en général juste après un appel à /audit pour propager les corrections.
+    Re-analyses a JSON of entities directly (without re-extraction).
+    Called after a manual correction of the contextual analysis (HITL),
+    usually right after a call to /audit to propagate the corrections.
     """
     try:
         analyst_state = analyst_graph.invoke({
@@ -353,10 +353,10 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 async def chat(req: ChatRequest):
     """
-    Échange avec l'Agent Chatbot (Agent 4).
+    Conversation with the Chatbot Agent (Agent 4).
 
-    Le contexte du document courant (entités, audit, analyse) est injecté
-    automatiquement dans le system prompt du LLM.
+    The context of the current document (entities, audit, analysis) is injected
+    automatically into the system prompt of the LLM.
     """
     try:
         lc_messages = []
@@ -384,9 +384,9 @@ async def chat(req: ChatRequest):
         )
 
         response = chat_state.get("response") or (
-            "Je suis désolé, je ne peux pas répondre pour le moment."
+            "Sorry, I cannot answer right now."
         )
-        print(f"[API/chat] Réponse : {response[:80]}…")
+        print(f"[API/chat] Answer: {response[:80]}…")
         return {"response": response, "status": "ok"}
 
     except Exception as e:
@@ -397,7 +397,7 @@ async def chat(req: ChatRequest):
         )
 
 
-# ── Admin : suppression des documents enregistrés (PostgreSQL) ────────────────
+# ── Admin: deletion of stored documents (PostgreSQL) ──────────────────────────
 
 @app.delete("/documents/{doc_type}/{doc_number}")
 async def remove_document(
@@ -405,27 +405,27 @@ async def remove_document(
     doc_number: str,
     token_data: dict = Depends(verify_token),
 ):
-    """Supprime un document de PostgreSQL — réservé aux administrateurs (role: admin)."""
+    """Deletes a document from PostgreSQL — administrators only (role: admin)."""
     if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
+        raise HTTPException(status_code=403, detail="Access denied — admin role required")
     deleted = delete_document_pg(doc_type, doc_number)
     return {"deleted": deleted, "doc_type": doc_type, "doc_number": doc_number}
 
 
 @app.delete("/admin/clear-documents")
 async def clear_documents(token_data: dict = Depends(verify_token)):
-    """Vide entièrement la base PostgreSQL (documents + factures + traites)."""
+    """Empties the PostgreSQL database entirely (documents + invoices + bills)."""
     if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
+        raise HTTPException(status_code=403, detail="Access denied — admin role required")
     count = clear_documents_pg()
-    return {"status": "ok", "deleted": count, "message": f"{count} document(s) supprimé(s) de PostgreSQL"}
+    return {"status": "ok", "deleted": count, "message": f"{count} document(s) deleted from PostgreSQL"}
 
 
 @app.post("/admin/daily-report")
 async def trigger_daily_report(token_data: dict = Depends(verify_token)):
-    """Déclenche manuellement le rapport consolidé quotidien (sans attendre 8h00)."""
+    """Triggers the daily consolidated report manually (without waiting for 8:00)."""
     if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Accès refusé — rôle admin requis")
+        raise HTTPException(status_code=403, detail="Access denied — admin role required")
     loop = asyncio.get_event_loop()
     sent = await loop.run_in_executor(None, send_daily_report)
     return {"status": "ok" if sent else "error", "sent": sent}
@@ -435,7 +435,7 @@ async def trigger_daily_report(token_data: dict = Depends(verify_token)):
 
 @app.get("/pg/documents")
 async def pg_documents(limit: int = 50):
-    """Retourne l'historique complet depuis PostgreSQL (factures + traites)."""
+    """Returns the full history from PostgreSQL (invoices + bills)."""
     rows = get_documents_pg(limit)
     return {"documents": rows, "count": len(rows), "status": "ok"}
 
@@ -452,7 +452,7 @@ async def save_entities(
     req: SaveRequest,
     authorization: Optional[str] = Header(default=None),
 ):
-    """Sauvegarde manuelle des entités (éventuellement corrigées) en PostgreSQL."""
+    """Manually saves the (possibly corrected) entities to PostgreSQL."""
     try:
         # Normalize keys to lowercase so save_document can match field names
         entities_norm = {k.lower(): v for k, v in req.entities.items()}
@@ -496,7 +496,7 @@ async def save_entities(
 
 @app.get("/pg/documents/{doc_id}")
 async def pg_document_detail(doc_id: int):
-    """Retourne le détail complet d'un document (entités + audit JSON)."""
+    """Returns the full details of a document (entities + audit JSON)."""
     facture = get_facture(doc_id)
     traite  = get_traite(doc_id)
     if not facture and not traite:

@@ -1,7 +1,7 @@
 """
 Sous-graphe LangGraph — Agent 1 : L'Extracteur
 
-Flux séquentiel :
+Sequential flow:
     START → detect_type
       ├── pdf_native      → extract_native (pdfplumber)
       └── image/pdf_scanned → extract_vision (OCR.space)
@@ -35,7 +35,7 @@ from agents.extractor.tools import (
 
 def detect_type_node(state: ExtractorState) -> dict:
     result = detect_file_type.invoke({"file_path": state["file_path"]})
-    print(f"[GRAPH] file_type détecté : {result.get('file_type')}")
+    print(f"[GRAPH] file_type detected: {result.get('file_type')}")
     return {
         "file_type": result.get("file_type"),
         "file_pages": result.get("pages", 1),
@@ -51,12 +51,12 @@ def extract_native_node(state: ExtractorState) -> dict:
 def extract_vision_node(state: ExtractorState) -> dict:
     raw_text = extract_text_vision.invoke({"image_path": state["file_path"]})
     print(f"[GRAPH] OCR.space — texte extrait ({len(raw_text)} chars)")
-    print(f"[GRAPH] Aperçu texte : {raw_text[:300]}\n")
+    print(f"[GRAPH] Text preview: {raw_text[:300]}\n")
     return {"raw_text": raw_text}
 
 
 def extract_entities_node(state: ExtractorState) -> dict:
-    """Sections I & III — Extraction texte via LLM (articles, taxes, coordonnées, logistique)."""
+    """Sections I & III — text extraction with an LLM (items, taxes, contact details, logistics)."""
     base_entities = state.get("base_entities") or {}
     document_type = state.get("document_type") or "auto"
     raw_text      = state.get("raw_text") or ""
@@ -67,22 +67,22 @@ def extract_entities_node(state: ExtractorState) -> dict:
         "document_type": document_type,
     })
 
-    print(f"[GRAPH] LLM réponse brute (500 chars) : {augmented_json[:500]}\n")
+    print(f"[GRAPH] Raw LLM answer (500 chars): {augmented_json[:500]}\n")
 
     try:
         augmented = json.loads(augmented_json)
     except Exception:
         augmented = {"error": augmented_json[:300]}
 
-    print(f"[GRAPH] Entités texte : {list(augmented.keys())}")
+    print(f"[GRAPH] Text entities: {list(augmented.keys())}")
     return {"augmented_entities": augmented}
 
 
 def extract_visual_node(state: ExtractorState) -> dict:
-    """Section II — Analyse visuelle via Gemini Vision (tampons, signatures, manuscrit, état)."""
+    """Section II — visual analysis with a vision model (stamps, signatures, handwriting, condition)."""
     document_type = state.get("document_type") or "auto"
 
-    # Si document_type est "auto", on le déduit depuis augmented_entities
+    # If document_type is "auto", infer it from augmented_entities
     augmented = state.get("augmented_entities") or {}
     doc_type_detected = augmented.get("_document_type", document_type)
 
@@ -96,20 +96,20 @@ def extract_visual_node(state: ExtractorState) -> dict:
     except Exception:
         visual = {}
 
-    # Si erreur Gemini → ne pas polluer le résultat final
+    # On a vision-model error → do not pollute the final result
     if "error" in visual or "visual_error" in visual:
-        print(f"[GRAPH] Vision en erreur : {visual}")
+        print(f"[GRAPH] Vision error: {visual}")
         return {"visual_fields": {}}
 
-    print(f"[GRAPH] Champs visuels Gemini : {visual}")
+    print(f"[GRAPH] Visual fields: {visual}")
     return {"visual_fields": visual}
 
 
 def merge_node(state: ExtractorState) -> dict:
     """
-    Fusionne les 3 sources avec priorité :
+    Merges the 3 sources with this priority:
       visual_fields > augmented_entities > base_entities
-    Vision est plus fiable pour : tampons, signatures, et tableau des articles (colonnes QTE/PU).
+    Vision is more reliable for: stamps, signatures and the item table (QTY/unit price columns).
     """
     base      = state.get("base_entities") or {}
     augmented = state.get("augmented_entities") or {}
@@ -117,29 +117,29 @@ def merge_node(state: ExtractorState) -> dict:
 
     complete = {**augmented, **visual, **base}
 
-    # Articles : préfère la vision (lit les colonnes visuellement) sauf si vide
+    # Items: prefer vision (reads the columns visually) unless empty
     vision_articles = visual.get("articles")
     text_articles   = augmented.get("articles")
     if vision_articles:
         complete["articles"] = vision_articles
-        print(f"[GRAPH] Articles → vision ({len(vision_articles)} lignes) — override texte")
+        print(f"[GRAPH] Items → vision ({len(vision_articles)} lines) — overrides text")
     elif text_articles:
         complete["articles"] = text_articles
-        print(f"[GRAPH] Articles → texte ({len(text_articles)} lignes) — vision vide")
+        print(f"[GRAPH] Items → text ({len(text_articles)} lines) — vision empty")
 
-    # ── Couche 2 : normalisation intelligente des montants (parse_amount) ──────────
-    # Gère 6 cas de confusion fréquents dans les documents tunisiens :
-    #   1. Espaces milliers + point décimal  : "1 320.600" → 1320.600
-    #   2. Format européen virgule+point     : "1.320,600" → 1320.600
-    #   3. Format US/mixte point décimal     : "4,498.800" → 4498.800
+    # ── Layer 2: smart amount normalisation (parse_amount) ───────────────────────────
+    # Handles 6 frequent confusion cases in Tunisian documents:
+    #   1. Thousands spaces + decimal dot    : "1 320.600" → 1320.600
+    #   2. European comma + dot format       : "1.320,600" → 1320.600
+    #   3. US/mixed decimal-dot format       : "4,498.800" → 4498.800
     #   4. Double point tunisien             : "1.320.600" → 1320.600
-    #   5. Virgule seule comme décimal       : "1320,600"  → 1320.600
-    #   6. Entier sans décimal (OCR)         :  4750       → 4.750
+    #   5. Comma alone as decimal separator  : "1320,600"  → 1320.600
+    #   6. Integer without decimals (OCR)    :  4750       → 4.750
     # IMPORTANT — had_decimal :
-    #   Si la chaine originale contient deja un separateur (virgule ou point),
-    #   le montant est fourni avec decimales EXPLICITES (ex: "20 754,000" = 20 754 DT).
-    #   On ne divise JAMAIS par 1000 dans ce cas, meme si la valeur est >= 10 000.
-    #   La division par 1000 s'applique uniquement aux entiers PURS (aucun separateur).
+    #   If the original string already contains a separator (comma or dot),
+    #   the amount has EXPLICIT decimals (e.g. "20 754,000" = 20,754 TND).
+    #   It is NEVER divided by 1000 in that case, even if the value is >= 10,000.
+    #   Division by 1000 only applies to PURE integers (no separator).
     def _normalize_amount(val, field: str = "", net_ref: float | None = None,
                           allow_int_fix: bool = True) -> float | None:
         if val is None:
@@ -153,7 +153,7 @@ def merge_node(state: ExtractorState) -> dict:
                 s = s.replace(sp, '')
             had_decimal = (',' in s) or ('.' in s)
             if ',' in s and '.' in s:
-                # Le separateur le plus a DROITE est le decimal, l'autre = milliers.
+                # The RIGHT-most separator is the decimal one, the other one is the thousands separator.
                 # "1.320,600" (EU, virgule decimale) vs "4,498.800" (US/mixte, point decimal)
                 if s.rfind(',') > s.rfind('.'):
                     s = s.replace('.', '').replace(',', '.'  )
@@ -195,7 +195,7 @@ def merge_node(state: ExtractorState) -> dict:
                 return candidate
 
         if f > 100000:
-            print(f"[PARSER] Warning {field}: valeur {f} > 100 000 DT")
+            print(f"[PARSER] Warning {field}: value {f} > 100,000 TND")
 
         return round(f, 3)
 
@@ -203,38 +203,38 @@ def merge_node(state: ExtractorState) -> dict:
     grandes_valeurs = any(m in lettres for m in ["MILLION", "MILLIARD"])
     allow_div1000 = not grandes_valeurs
 
-    # 1. net_a_payer en premier → sert d'ancre pour les champs dépendants
+    # 1. net_a_payer first → used as the anchor for the dependent fields
     if complete.get("net_a_payer") is not None:
         complete["net_a_payer"] = _normalize_amount(
             complete["net_a_payer"], "net_a_payer", allow_int_fix=allow_div1000
         )
     net_ref = complete.get("net_a_payer")
 
-    # Correction ×1000 pour net_a_payer : "24.000 DT" lu comme entier 24000
-    # Condition : lettres ne contient pas "MILLE/MILLIER" ET valeur est entier ≥ 1000
+    # ×1000 correction for net_a_payer: "24.000 DT" read as the integer 24000
+    # Condition: the amount in words does not contain "MILLE/MILLIER" AND the value is an integer ≥ 1000
     if (net_ref is not None and net_ref >= 1000 and net_ref == round(net_ref)
             and lettres
             and not any(m in lettres for m in ["MILLE", "MILLIER", "THOUSAND", "ألف"])):
         corrected = round(net_ref / 1000, 3)
         if corrected < 100000:
-            print(f"[PARSER] net_a_payer ×1000 corrigé : {net_ref} → {corrected} (lettres='{lettres[:60]}')")
+            print(f"[PARSER] net_a_payer ×1000 corrected: {net_ref} → {corrected} (words='{lettres[:60]}')")
             complete["net_a_payer"] = corrected
             net_ref = corrected
 
-    # 2. Montants dépendants avec net_ref comme ancre plausibilité
+    # 2. Dependent amounts, using net_ref as a plausibility anchor
     for field in ("montant_tva", "montant_ht", "fodec", "net_htva"):
         if complete.get(field) is not None:
             complete[field] = _normalize_amount(
                 complete[field], field, net_ref=net_ref, allow_int_fix=allow_div1000
             )
 
-    # 3. timbre_fiscal : toujours avec int_fix=True (max 2 DT, indépendant de la taille du doc)
+    # 3. timbre_fiscal: always with int_fix=True (max 2 TND, independent of the document size)
     if complete.get("timbre_fiscal") is not None:
         complete["timbre_fiscal"] = _normalize_amount(
             complete["timbre_fiscal"], "timbre_fiscal", allow_int_fix=True
         )
 
-    # 4. Champs articles (prix_unitaire_ht, total_ht_ligne)
+    # 4. Item fields (prix_unitaire_ht, total_ht_ligne)
     articles_list = complete.get("articles") or []
     for art in articles_list:
         for f_art in ("prix_unitaire_ht", "total_ht_ligne"):
@@ -245,16 +245,16 @@ def merge_node(state: ExtractorState) -> dict:
     if articles_list:
         complete["articles"] = articles_list
 
-    # ── Détection coordonnées GPS dans les champs adresse ────────────────────────
-    # Ooredoo et certains opérateurs impriment les coordonnées GPS de l'abonné
+    # ── GPS coordinates detected in the address fields ───────────────────────────
+    # Some telecom operators print the subscriber's GPS coordinates
     GPS_PATTERN = _re.compile(r'^-?\d{1,3}\.\d{4,}[,;]\s*-?\d{1,3}\.\d{4,}')
     for addr_field in ("adresse_client", "adresse_fournisseur"):
         val = complete.get(addr_field)
         if val and isinstance(val, str) and GPS_PATTERN.match(val.strip()):
-            print(f"[GRAPH] {addr_field} : coordonnées GPS détectées → rejeté")
+            print(f"[GRAPH] {addr_field}: GPS coordinates detected → rejected")
             complete[addr_field] = None
 
-    # ── Validation timbre_fiscal : fallback — si encore > 50 DT après normalisation ──
+    # ── timbre_fiscal check: fallback — if still > 50 TND after normalisation ──
     timbre = complete.get("timbre_fiscal")
     if timbre is not None:
         try:
@@ -264,42 +264,42 @@ def merge_node(state: ExtractorState) -> dict:
         except (ValueError, TypeError):
             pass
 
-    # ── Nettoyage des champs "null" textuels (LLM écrit "null" au lieu de null JSON) ──
-    # Le LLM produit parfois la chaîne "null" au lieu de l'absence de valeur.
+    # ── Clean textual "null" values (the LLM writes "null" instead of JSON null) ──
+    # The LLM sometimes returns the string "null" instead of an absent value.
     for key in list(complete.keys()):
         if complete[key] == "null" or complete[key] == "None":
             complete[key] = None
 
-    # ── Validation numero_facture : rejeter si c'est une adresse ou un texte long ─
+    # ── numero_facture check: reject it if it is an address or a long text ─
     num = complete.get("numero_facture")
     if num and isinstance(num, str):
         num_stripped = num.strip()
         mots = num_stripped.split()
-        # Si > 4 mots ou contient des mots d'adresse → probablement une erreur
+        # More than 4 words or address words → probably an error
         MOTS_ADRESSE = {"rue", "avenue", "av", "bd", "imm", "im", "sibo", "zone", "zi",
                         "poudriere", "quartier", "km", "bp", "route", "sfax", "tunis",
                         "sousse", "el", "ben", "sidi"}
         est_adresse = len(mots) > 4 or any(m.lower() in MOTS_ADRESSE for m in mots)
         if est_adresse:
-            # Cherche un vrai numéro de facture dans la chaîne
+            # Look for a real invoice number inside the string
             match = _re.search(r'\b[A-Z0-9]{6,20}\b', num_stripped.replace(" ", ""))
             if match:
                 complete["numero_facture"] = match.group()
-                print(f"[GRAPH] numero_facture corrigé : '{num}' → '{match.group()}'")
+                print(f"[GRAPH] numero_facture corrected: '{num}' → '{match.group()}'")
             else:
                 complete["numero_facture"] = None
-                print(f"[GRAPH] numero_facture rejeté (adresse) : '{num}'")
+                print(f"[GRAPH] numero_facture rejected (address): '{num}'")
 
-    # ── Correction automatique de la devise depuis net_a_payer_lettres ──────────
-    # Le LLM hallucine parfois "DT" même sur des factures en euros.
-    # Le champ net_a_payer_lettres contient la devise réelle écrite en toutes lettres.
+    # ── Automatic currency correction from net_a_payer_lettres ──────────────────
+    # The LLM sometimes hallucinates "DT" even on invoices in euros.
+    # The net_a_payer_lettres field contains the actual currency written in words.
     lettres = (complete.get("net_a_payer_lettres") or "").upper()
     raw_text = (state.get("raw_text") or "").upper()
 
-    # Priorité 1a : EUR/USD/DH explicite dans le texte OCR (prime sur tout)
-    # Utilise regex \b pour éviter les faux positifs ("CAPTEUR" contient "EUR" comme sous-chaîne)
+    # Priority 1a: explicit EUR/USD/DH in the OCR text (overrides everything)
+    # Uses the \b regex boundary to avoid false positives ("CAPTEUR" contains "EUR" as a substring)
     # NOTE : \bCENTIMES?\b intentionnellement ABSENT — en Tunisie "CENTIMES" = millimes (usage
-    #        français hérité), pas une indication de devise EUR ; causerait de faux positifs.
+    #        French usage), not a EUR currency indication; it would cause false positives.
     EUR_PATTERNS = [r'\bEUR\b', r'€', r'\bEUROS?\b', r'\bSIRET\b', r'\bTVA INTRA\b',
                     r'RCS DE PARIS']
     if any(_re.search(p, raw_text) for p in EUR_PATTERNS):
@@ -308,12 +308,12 @@ def merge_node(state: ExtractorState) -> dict:
         complete["devise"] = "USD"
     elif any(w in raw_text for w in ["MAD", "DIRHAM", "DH "]):
         complete["devise"] = "DH"
-    # Priorité 1b : DT/TND explicite dans le texte OCR tunisien
+    # Priority 1b: explicit DT/TND in the Tunisian OCR text
     elif any(w in raw_text for w in ["MONTANT (DT)", "EN DT TTC", "بالدينار",
                                       "المبلغ بالدينار", "DT TTC", "EN DT)", " TND",
                                       "TND\n", "(TND)", "EN TND"]):
         complete["devise"] = "DT"
-    # Priorité 2 : devise depuis net_a_payer_lettres (fallback — moins fiable)
+    # Priority 2: currency from net_a_payer_lettres (fallback — less reliable)
     elif lettres:
         if any(w in lettres for w in ["EURO", "EUR"]):
             complete["devise"] = "EUR"
@@ -355,7 +355,7 @@ def build_extractor_graph():
         {"extract_native": "extract_native", "extract_vision": "extract_vision"},
     )
 
-    # Flux séquentiel : OCR → LLM texte → Gemini Vision → merge
+    # Sequential flow: OCR → text LLM → vision model → merge
     builder.add_edge("extract_native",   "extract_entities")
     builder.add_edge("extract_vision",   "extract_entities")
     builder.add_edge("extract_entities", "extract_visual")
